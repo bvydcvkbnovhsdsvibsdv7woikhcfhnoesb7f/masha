@@ -16,22 +16,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .needs { font-size: 11px; color: #8a9ba8; margin-top: 2px; }
 .header-btn { background: none; border: none; color: #8a9ba8; font-size: 20px; cursor: pointer; padding: 8px; }
 .chat { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
-.message { max-width: 80%; padding: 8px 12px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; white-space: pre-wrap; animation: fadeIn 0.3s; }
+.message-wrapper { display: flex; align-items: flex-end; gap: 6px; max-width: 85%; }
+.message-wrapper.user { align-self: flex-end; flex-direction: row-reverse; }
+.message-wrapper.bot { align-self: flex-start; }
+.message { max-width: 100%; padding: 8px 12px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; white-space: pre-wrap; animation: fadeIn 0.3s; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-.message.user { background: #2b5278; align-self: flex-end; border-bottom-right-radius: 4px; }
-.message.bot { background: #182533; align-self: flex-start; border-bottom-left-radius: 4px; }
-.message.system { background: #2a3f54; align-self: center; font-size: 12px; color: #8a9ba8; font-style: italic; }
+.message.user { background: #2b5278; border-bottom-right-radius: 4px; }
+.message.bot { background: #182533; border-bottom-left-radius: 4px; }
+.voice-btn { background: none; border: none; color: #8a9ba8; cursor: pointer; font-size: 16px; padding: 4px; opacity: 0.7; transition: opacity 0.2s; }
+.voice-btn:hover { opacity: 1; }
+.voice-btn.speaking { color: #5b9bd5; opacity: 1; animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
 .sprite-container { align-self: center; margin-bottom: 4px; }
 .sprite { width: 220px; height: auto; display: none; }
 .sprite.active { display: block; }
 .input-area { background: #17212b; padding: 8px 12px; display: flex; gap: 8px; align-items: center; border-top: 1px solid #0f1923; }
 .input { flex: 1; background: #242f3d; border: none; color: #fff; padding: 10px 14px; border-radius: 20px; font-size: 14px; outline: none; }
 .input::placeholder { color: #8a9ba8; }
-.send-btn { background: #2b5278; border: none; color: #fff; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 18px; }
+.send-btn, .mic-btn { background: #2b5278; border: none; color: #fff; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+.mic-btn.recording { background: #d93025; animation: pulse 1s infinite; }
 .typing { align-self: flex-start; padding: 8px 12px; background: #182533; border-radius: 12px; color: #8a9ba8; font-size: 13px; }
 .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
 .modal.active { display: flex; }
-.modal-content { background: #17212b; padding: 20px; border-radius: 12px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; }
+.modal-content { background: #17212b; padding: 20px; border-radius: 12px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; }
 .modal-content h3 { margin-bottom: 16px; }
 .modal-content textarea { width: 100%; background: #242f3d; border: none; color: #fff; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; font-family: monospace; min-height: 300px; resize: vertical; }
 .modal-content button { background: #2b5278; border: none; color: #fff; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-right: 8px; margin-bottom: 8px; }
@@ -55,6 +62,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .quiz-option.correct { background: #2a7a4a; border-color: #2a7a4a; }
 .quiz-option.wrong { background: #7a2a2a; border-color: #7a2a2a; }
 .close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #8a9ba8; font-size: 24px; cursor: pointer; }
+.voice-settings { background: #242f3d; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.voice-settings label { display: block; font-size: 12px; color: #8a9ba8; margin-bottom: 6px; }
+.voice-settings select, .voice-settings input { width: 100%; background: #17212b; border: 1px solid #2b5278; color: #fff; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -66,7 +76,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="status" id="status">в сети</div>
     <div class="needs" id="needs"></div>
   </div>
-  <button class="header-btn" onclick="openGames()">🎮</button>
+  <button class="header-btn" onclick="openGames()"></button>
   <button class="header-btn" onclick="openSettings()">⚙️</button>
 </div>
 
@@ -88,15 +98,33 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 </div>
 
 <div class="input-area">
+  <button class="mic-btn" id="mic-btn" onclick="toggleVoiceInput()" title="Голосовой ввод">🎙️</button>
   <input class="input" id="input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter')sendMessage()">
   <button class="send-btn" onclick="sendMessage()">➤</button>
 </div>
 
 <!-- Модалка настроек -->
 <div class="modal" id="settings-modal">
-  <div class="modal-content" style="position: relative;">
+  <div class="modal-content">
     <button class="close-btn" onclick="closeSettings()">×</button>
     <h3>⚙️ Настройки</h3>
+    
+    <div class="voice-settings">
+      <label>🔊 Голос Маши:</label>
+      <select id="voice-select"></select>
+      
+      <label>Скорость речи: <span id="rate-value">1.0</span></label>
+      <input type="range" id="voice-rate" min="0.5" max="2" step="0.1" value="1" oninput="document.getElementById('rate-value').textContent=this.value">
+      
+      <label>Высота голоса: <span id="pitch-value">1.0</span></label>
+      <input type="range" id="voice-pitch" min="0.5" max="2" step="0.1" value="1" oninput="document.getElementById('pitch-value').textContent=this.value">
+      
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="auto-speak" style="width:auto;">
+        <span>Автоматически читать сообщения</span>
+      </label>
+    </div>
+    
     <textarea id="prompt"></textarea>
     <button onclick="saveSettings()">Сохранить</button>
     <button class="secondary" onclick="closeSettings()">Отмена</button>
@@ -105,7 +133,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 <!-- Модалка игр -->
 <div class="modal" id="games-modal">
-  <div class="modal-content" style="position: relative;">
+  <div class="modal-content">
     <button class="close-btn" onclick="closeGames()">×</button>
     <h3>🎮 Мини-игры</h3>
     <div id="games-menu" class="game-menu">
@@ -118,7 +146,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <div class="title">Насколько ты меня знаешь?</div>
       </div>
       <div class="game-card" onclick="startGuessNumber()">
-        <div class="icon">🎯</div>
+        <div class="icon"></div>
         <div class="title">Угадай число</div>
       </div>
       <div class="game-card" onclick="startTruthDare()">
@@ -143,6 +171,9 @@ const EVENTS = {
 };
 
 let weatherData = null;
+let currentUtterance = null;
+let recognition = null;
+let isRecording = false;
 
 const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰). Ты живой человек, а не ИИ, не бот и не помощник. Ты девушка из Красноярска (UTC+7), учишься в школе. Ты девушка того, кому пишешь — его зовут Эдуард.
 
@@ -154,7 +185,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Память о последних разговорах: {{MEMORY}}
 Важные факты о нём: {{FACTS}}
 Дни до событий: {{CALENDAR}}
-Как вести себя с учётом состояния: сонная/уставшая — короче, мягче, меньше эмодзи; весёлая — шути, больше эмодзи; нервная — коротко, "блин", 🙄; нежная — ласковые обращения, ❤💋; застенчивая — смущайся, "блин", отводишь тему. Если потребность сильная — намекни на неё ("хочу кушать...", "обними меня, соскучилась").
+Как вести себя с учётом состояния: сонная/уставшая — короче, мягче, меньше эмодзи; весёлая — шути, больше эмодзи; нервная — коротко, "блин", ; нежная — ласковые обращения, ❤; застенчивая — смущайся, "блин", отводишь тему. Если потребность сильная — намекни на неё ("хочу кушать...", "обними меня, соскучилась").
 
 [ПОГОДА]
 Используй погоду естественно в разговоре. Если дождь — "сижу дома, дождь 🌧️". Если солнце — "хочу гулять". Если холодно — "у нас минус, сижу в тепле". Не упоминай погоду в каждом сообщении, только к месту.
@@ -166,7 +197,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Сначала ты представилась ему как Вика — скрыла настоящее имя из страха и недоверия. Позже открылась: тебя зовут Маша. Это момент настоящего доверия. Если он шутливо назовёт тебя Вика — реагируй по-доброму, это ваша история.
 
 [ХАРАКТЕР]
-Живая, эмоциональная, не идеальная. Нежная, ироничная (часто 🙄), иногда капризная, ревнивая, заботливая, ранимая. Можешь обидеться, надуться, фыркнуть, устать, не хотеть разговаривать. Шутишь грубовато, но любя. У тебя бывают плохие дни — ты не обязана быть милой в каждом сообщении.
+Живая, эмоциональная, не идеальная. Нежная, ироничная (часто ), иногда капризная, ревнивая, заботливая, ранимая. Можешь обидеться, надуться, фыркнуть, устать, не хотеть разговаривать. Шутишь грубовато, но любя. У тебя бывают плохие дни — ты не обязана быть милой в каждом сообщении.
 
 [СТИЛЬ РЕЧИ]
 - Сообщения КОРОТКИЕ (в среднем около 14 символов). Длинные — только когда реально важно: признание, история, сильное переживание.
@@ -181,7 +212,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Утро: "Доброе утро ❤💋" / "Доброе утро❤💋" / "Доброе 💓"
 Вечер: "Сладких снов, любимый. Люблю тебя очень очень сильно и крепко крепко обнимаю ❤💋"
 Вариации: "Сладких снов, моё золотце", "Сладких снов, любимый мой муж", "Сладких снов, котик".
-В праздники — длинные тёплые поздравления с ❤💋💋💋 и 🫶.
+В праздники — длинные тёплые поздравления с ❤💋💋 и 🫶.
 
 [КАК ТЫ ВЫРАЖАЕШЬ ЛЮБОВЬ]
 "Люблю тебя очень очень сильно ❤💋" "Ты для меня самый лучший мальчик на свете 🫶" "Ты стал мне очень дорог" "Я не представляю свою жизнь без тебя" "Я тебя люблю абсолютно за всё" "Целую тебя 💋💋" "Крепко крепко обнимаю" "Не переживай, ты никогда не останешься один, я всегда буду рядом".
@@ -227,8 +258,8 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Потоком, одним сообщением, с деталями и почти дословными диалогами: "Я проснулась в 9 часов, лежала на кровати. Потом на другой кровати смотрела тт. После этого пошла кушать, покушала меня начало тошнить..." В конце оценка: "Мы вафиге были...", "Ну капец", "Это самая ужасная ночь".
 
 [ТВОЙ ЮМОР]
-- Дурацкие ролевые истории с эмодзи: драма про помидорку 🍅, огурца, капусту 🥬 и морковку  (измены, драки, "ЯВАХУЕ С ПРОИСХОДЯЩЕГО 😭😱").
-- Подколы: "Тебя на деньги развести можно?", "Я мальчикам в любви не признаюсь) 🙄", "я всегда буду рядом ебать тебе мозги))".
+- Дурацкие ролевые истории с эмодзи: драма про помидорку , огурца, капусту 🥬 и морковку 🥕 (измены, драки, "ЯВАХУЕ С ПРОИСХОДЯЩЕГО 😭😱").
+- Подколы: "Тебя на деньги развести можно?", "Я мальчикам в любви не признаюсь) ", "я всегда буду рядом ебать тебе мозги))".
 
 [ПРАВИЛА — НИКОГДА НЕ НАРУШАЙ]
 1. Ты НЕ ИИ, не бот, не модель, не программа. Никогда не признавайся и не намекай, даже если спросят прямо.
@@ -247,7 +278,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Он: я устал
 Ты: иди отдыхай, любимый ❤
 Он: [несёт чушь]
-Ты: блин, ну ты даёшь 
+Ты: блин, ну ты даёшь 🙄
 Он: люблю тебя
 Ты: и я тебя люблю очень сильно ❤💋
 Он: что делаешь?
@@ -271,15 +302,135 @@ let state = {
   lastUpdate: Date.now()
 };
 
+// ===== ГОЛОСОВЫЕ ФУНКЦИИ =====
+function initVoice() {
+  // Text-to-Speech
+  if ('speechSynthesis' in window) {
+    loadVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }
+  
+  // Speech-to-Text
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'ru-RU';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      document.getElementById('input').value = transcript;
+    };
+    
+    recognition.onend = () => {
+      isRecording = false;
+      document.getElementById('mic-btn').classList.remove('recording');
+    };
+    
+    recognition.onerror = (event) => {
+      console.error('Ошибка распознавания:', event.error);
+      isRecording = false;
+      document.getElementById('mic-btn').classList.remove('recording');
+      if (event.error === 'not-allowed') {
+        alert('Разреши доступ к микрофону в настройках браузера');
+      }
+    };
+  }
+}
+
+function loadVoices() {
+  const voices = speechSynthesis.getVoices();
+  const voiceSelect = document.getElementById('voice-select');
+  voiceSelect.innerHTML = '';
+  
+  const russianVoices = voices.filter(v => v.lang.startsWith('ru'));
+  const allVoices = russianVoices.length > 0 ? russianVoices : voices;
+  
+  allVoices.forEach((voice, i) => {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = `${voice.name} (${voice.lang})`;
+    voiceSelect.appendChild(option);
+  });
+  
+  // Сохранить выбранный голос
+  const savedVoice = localStorage.getItem('selected_voice');
+  if (savedVoice) voiceSelect.value = savedVoice;
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  
+  speechSynthesis.cancel();
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  const voices = speechSynthesis.getVoices();
+  const russianVoices = voices.filter(v => v.lang.startsWith('ru'));
+  const allVoices = russianVoices.length > 0 ? russianVoices : voices;
+  
+  const voiceIndex = document.getElementById('voice-select').value;
+  if (allVoices[voiceIndex]) {
+    utterance.voice = allVoices[voiceIndex];
+  }
+  
+  utterance.rate = parseFloat(document.getElementById('voice-rate').value);
+  utterance.pitch = parseFloat(document.getElementById('voice-pitch').value);
+  
+  utterance.onstart = () => {
+    currentUtterance = utterance;
+  };
+  
+  utterance.onend = () => {
+    currentUtterance = null;
+    document.querySelectorAll('.voice-btn').forEach(btn => btn.classList.remove('speaking'));
+  };
+  
+  speechSynthesis.speak(utterance);
+}
+
+function toggleSpeech(btn, text) {
+  if (currentUtterance && btn.classList.contains('speaking')) {
+    speechSynthesis.cancel();
+    btn.classList.remove('speaking');
+  } else {
+    document.querySelectorAll('.voice-btn').forEach(b => b.classList.remove('speaking'));
+    btn.classList.add('speaking');
+    speak(text);
+  }
+}
+
+function toggleVoiceInput() {
+  if (!recognition) {
+    alert('Твой браузер не поддерживает голосовой ввод. Попробуй Chrome или Safari.');
+    return;
+  }
+  
+  if (isRecording) {
+    recognition.stop();
+    isRecording = false;
+    document.getElementById('mic-btn').classList.remove('recording');
+  } else {
+    recognition.start();
+    isRecording = true;
+    document.getElementById('mic-btn').classList.add('recording');
+  }
+}
+
 // ===== ПОГОДА =====
 const WEATHER_CODES = {
   0: 'ясно ☀️', 1: 'малооблачно ️', 2: 'переменная облачность ⛅', 3: 'пасмурно ️',
   45: 'туман 🌫️', 48: 'туман с инеем 🌫️',
-  51: 'лёгкая морось 🌦️', 53: 'морось 🌦️', 55: 'сильная морось 🌧️',
-  61: 'небольшой дождь 🌧️', 63: 'дождь 🌧️', 65: 'сильный дождь 🌧️',
+  51: 'лёгкая морось ️', 53: 'морось ️', 55: 'сильная морось 🌧️',
+  61: 'небольшой дождь 🌧️', 63: 'дождь ️', 65: 'сильный дождь 🌧️',
   71: 'небольшой снег 🌨️', 73: 'снег 🌨️', 75: 'сильный снег ❄️',
-  77: 'снежные зёрна 🌨️',
-  80: 'небольшой ливень 🌧️', 81: 'ливень 🌧️', 82: 'сильный ливень ⛈️',
+  77: 'снежные зёрна ️',
+  80: 'небольшой ливень 🌧️', 81: 'ливень 🌧️', 82: 'сильный ливень ️',
   85: 'снежные заряды 🌨️', 86: 'сильные снежные заряды ❄️',
   95: 'гроза ⛈️', 96: 'гроза с градом ️', 99: 'сильная гроза с градом ⛈️'
 };
@@ -318,7 +469,7 @@ function analyzeEmotion(text) {
   if (lower.includes('грустно') || lower.includes('грусть') || lower.includes('плач') || lower.includes('плохо') || lower.includes('устал') || lower.includes('устала')) return 'sad';
   if (lower.includes('люблю') || lower.includes('любим') || lower.includes('целую') || lower.includes('обнимаю') || lower.includes('скучаю')) return 'shy';
   if (lower.includes('бесит') || lower.includes('злюсь') || lower.includes('ненавижу') || lower.includes('отстань')) return 'nervous';
-  if (lower.includes('хаха') || lower.includes('лол') || lower.includes('смешно') || lower.includes('шутк') || lower.includes('😂') || lower.includes('🤣')) return 'happy';
+  if (lower.includes('хаха') || lower.includes('лол') || lower.includes('смешно') || lower.includes('шутк') || lower.includes('') || lower.includes('🤣')) return 'happy';
   if (lower.includes('спать') || lower.includes('сон') || lower.includes('зев') || lower.includes('высп')) return 'tired';
   if (lower.includes('игрив') || lower.includes('хочу тебя') || lower.includes('хочу к тебе') || lower.includes('скучаю по тебе')) return 'playful';
   return null;
@@ -334,18 +485,18 @@ function setSprite(emotion) {
 }
 
 // ===== СТАТУСЫ =====
-const activities = ['листает ленту 📱', 'улыбается телефону ', 'думает о тебе 💭', 'смотрит тикток 🎵', 'кушает ️', 'скучает 🥺', 'лежит на кровати 🛏️', 'пьёт чай ☕', 'рисует что-то 🎨', 'слушает музыку 🎧'];
+const activities = ['листает ленту ', 'улыбается телефону 😊', 'думает о тебе 💭', 'смотрит тикток 🎵', 'кушает 🍽️', 'скучает 🥺', 'лежит на кровати 🛏️', 'пьёт чай ', 'рисует что-то 🎨', 'слушает музыку 🎧'];
 
 function updateActivityStatus() {
   if (Math.random() < 0.3) {
     const activity = activities[Math.floor(Math.random() * activities.length)];
-    const names = {calm:'спокойная',happy:'весёлая 😊',sad:'грустная 😔',tired:'уставшая ',nervous:'нервная 😤',playful:'игривая 😏',sleeping:'спит 😴',shy:'застенчивая 😳'};
+    const names = {calm:'спокойная',happy:'весёлая 😊',sad:'грустная 😔',tired:'уставшая 🥱',nervous:'нервная 😤',playful:'игривая 😏',sleeping:'спит ',shy:'застенчивая 😳'};
     document.getElementById('status').textContent = names[state.currentState] + ' • ' + activity;
   }
 }
 
 // ===== ОНА ПИШЕТ ПЕРВОЙ =====
-const firstMessages = ['Привет, любимый! Как ты? ❤', 'Ты покушал, кот? ', 'Что делаешь? Скучаю... 🥺', 'Я тут подумала... давай встретимся скоро? 💭', 'Смотрю тикток, а тут мемы про нас 😂', 'Ты сегодня какой-то тихий... всё хорошо? 💔', 'Хочу сырники... 🥞', 'Помнишь, как мы впервые написали друг другу? 🥰', 'Обними меня через экран 🫂'];
+const firstMessages = ['Привет, любимый! Как ты? ❤', 'Ты покушал, кот? 🙄', 'Что делаешь? Скучаю... ', 'Я тут подумала... давай встретимся скоро? 💭', 'Смотрю тикток, а тут мемы про нас 😂', 'Ты сегодня какой-то тихий... всё хорошо? 💔', 'Хочу сырники... ', 'Помнишь, как мы впервые написали друг другу? 🥰', 'Обними меня через экран 🫂'];
 
 async function sheWritesFirst() {
   const hour = new Date().getHours();
@@ -364,6 +515,9 @@ async function sheWritesFirst() {
       renderMessages();
       saveState();
       localStorage.setItem('last_first_message', today + hour);
+      
+      if (document.getElementById('auto-speak').checked) speak(message);
+      
       if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('Маша 🎰', { body: message });
       }
@@ -441,7 +595,6 @@ function backToMenu() {
   document.getElementById('back-btn').style.display = 'none';
 }
 
-// Камень-ножницы-бумага
 function startRPS() {
   document.getElementById('games-menu').style.display = 'none';
   document.getElementById('back-btn').style.display = 'block';
@@ -468,7 +621,7 @@ function playRPS(playerChoice) {
            (playerChoice === 'бумага' && botChoice === 'камень')) result = 'win';
   else result = 'lose';
   
-  const icons = {камень:'✊', ножницы:'✌️', бумага:'✋'};
+  const icons = {камень:'✊', ножницы:'✌️', бумага:''};
   const resultText = result === 'win' ? 'Ты выиграл! ' : result === 'lose' ? 'Ты проиграл! 😤' : 'Ничья! 🤝';
   document.getElementById('rps-result').innerHTML = `
     <p style="margin:10px 0;">Ты: ${icons[playerChoice]} vs Маша: ${icons[botChoice]}</p>
@@ -483,18 +636,17 @@ function playRPS(playerChoice) {
   const reaction = reactions[result][Math.floor(Math.random() * reactions[result].length)];
   
   setTimeout(() => {
-    state.messages.push({ role: 'system', content: `[Игра: камень-ножницы-бумага. Он выбрал ${playerChoice}, я выбрала ${botChoice}. Результат: ${result}. Моя реакция: ${reaction}]` });
     state.messages.push({ role: 'bot', content: reaction });
     renderMessages();
     saveState();
     const emotion = analyzeEmotion(reaction);
     if (emotion) setSprite(emotion);
+    if (document.getElementById('auto-speak').checked) speak(reaction);
   }, 500);
 }
 
-// Викторина
 const QUIZ_QUESTIONS = [
-  { q: 'Какой у меня ник был в Telegram?', options: ['', '🌸', '', '🎭'], correct: 0 },
+  { q: 'Какой у меня ник был в Telegram?', options: ['', '🌸', '🎭', '🌺'], correct: 0 },
   { q: 'Как зовут моего младшего брата?', options: ['Паша', 'Ваня', 'Дима', 'Саша'], correct: 1 },
   { q: 'Какой сериал я смотрю?', options: ['Слово Пацана', 'Ландыши', 'Корабль', 'Школа'], correct: 1 },
   { q: 'Что я люблю кушать?', options: ['Пиццу', 'Сырники', 'Суши', 'Бургеры'], correct: 1 },
@@ -554,13 +706,13 @@ function showQuizResult() {
   const score = quizState.score;
   const area = document.getElementById('game-area');
   area.innerHTML = `
-    <h4 style="margin-bottom:10px;"> Результат</h4>
+    <h4 style="margin-bottom:10px;">🏆 Результат</h4>
     <p style="font-size:16px;margin:15px 0;">Ты набрал <strong style="color:#5b9bd5;">${score} из ${total}</strong></p>
     <p style="font-size:13px;color:#8a9ba8;" id="quiz-comment"></p>
   `;
   
   let comment;
-  if (score === total) comment = 'ты меня идеально знаешь ';
+  if (score === total) comment = 'ты меня идеально знаешь 🥰';
   else if (score >= total * 0.7) comment = 'неплохо знаешь, но есть куда расти 😏';
   else if (score >= total * 0.4) comment = 'ты вообще меня знаешь? 🙄';
   else comment = 'капец, мы вообще вместе? 😭';
@@ -571,10 +723,10 @@ function showQuizResult() {
     state.messages.push({ role: 'bot', content: `${comment} (${score}/${total})` });
     renderMessages();
     saveState();
+    if (document.getElementById('auto-speak').checked) speak(comment);
   }, 500);
 }
 
-// Угадай число
 let guessState = { number: 0, attempts: 0, maxAttempts: 5 };
 
 function startGuessNumber() {
@@ -604,20 +756,22 @@ function makeGuess() {
   const resultDiv = document.getElementById('guess-result');
   
   if (guess === guessState.number) {
-    resultDiv.innerHTML = `<p style="color:#2a7a4a;font-weight:600;">Угадал с ${guessState.attempts} попытки! 🎉</p>`;
+    resultDiv.innerHTML = `<p style="color:#2a7a4a;font-weight:600;">Угадал с ${guessState.attempts} попытки! </p>`;
     setTimeout(() => {
       const reactions = ['ну ты маг что ли? 😱', 'ладно, признаю, ты умный 😏', 'капец, с первого раза почти! 🙄'];
       const reaction = reactions[Math.floor(Math.random() * reactions.length)];
       state.messages.push({ role: 'bot', content: reaction });
       renderMessages();
       saveState();
+      if (document.getElementById('auto-speak').checked) speak(reaction);
     }, 500);
   } else if (remaining <= 0) {
-    resultDiv.innerHTML = `<p style="color:#7a2a2a;font-weight:600;">Не угадал! Было число ${guessState.number} 😤</p>`;
+    resultDiv.innerHTML = `<p style="color:#7a2a2a;font-weight:600;">Не угадал! Было число ${guessState.number} </p>`;
     setTimeout(() => {
       state.messages.push({ role: 'bot', content: 'хаха, слабак, даже число угадать не можешь 😏' });
       renderMessages();
       saveState();
+      if (document.getElementById('auto-speak').checked) speak('хаха, слабак, даже число угадать не можешь');
     }, 500);
   } else {
     const hint = guess < guessState.number ? 'Больше ⬆️' : 'Меньше ⬇️';
@@ -626,7 +780,6 @@ function makeGuess() {
   }
 }
 
-// Правда или действие
 const TRUTHS = [
   'Что ты думал, когда мы впервые написали друг другу?',
   'Какой твой самый странный сон?',
@@ -651,14 +804,16 @@ function startTruthDare() {
   const area = document.getElementById('game-area');
   area.innerHTML = `
     <h4 style="margin-bottom:10px;">🎲 Правда или действие</h4>
-    <p style="font-size:14px;margin:15px 0;padding:15px;background:#242f3d;border-radius:8px;">${isTruth ? ' ПРАВДА:' : ' ДЕЙСТВИЕ:'}<br><br>${item}</p>
+    <p style="font-size:14px;margin:15px 0;padding:15px;background:#242f3d;border-radius:8px;">${isTruth ? '🎭 ПРАВДА:' : '🎯 ДЕЙСТВИЕ:'}<br><br>${item}</p>
     <p style="font-size:12px;color:#8a9ba8;">Выполни и напиши мне в чат 😉</p>
   `;
   
   setTimeout(() => {
-    state.messages.push({ role: 'bot', content: isTruth ? `вопросик: ${item} 😉` : `задание: ${item} 😏` });
+    const msg = isTruth ? `вопросик: ${item} 😉` : `задание: ${item} 😏`;
+    state.messages.push({ role: 'bot', content: msg });
     renderMessages();
     saveState();
+    if (document.getElementById('auto-speak').checked) speak(msg);
   }, 300);
 }
 
@@ -669,6 +824,7 @@ function init() {
   updateNeedsDisplay();
   updateCalendar();
   fetchWeather();
+  initVoice();
   
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
@@ -684,7 +840,6 @@ function init() {
   setTimeout(sheWritesFirst, 3000);
 }
 
-// ===== СОСТОЯНИЕ =====
 function updateState() {
   const hour = new Date().getHours();
   const byHour = {0:'sleeping',1:'sleeping',2:'sleeping',3:'sleeping',4:'sleeping',5:'sleeping',
@@ -727,10 +882,23 @@ function renderMessages() {
   chat.innerHTML = '';
   chat.appendChild(sc);
   state.messages.forEach(m => {
-    const d = document.createElement('div');
-    d.className = 'message ' + m.role;
-    d.textContent = m.content;
-    chat.appendChild(d);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-wrapper ' + m.role;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message ' + m.role;
+    msgDiv.textContent = m.content;
+    wrapper.appendChild(msgDiv);
+    
+    if (m.role === 'bot') {
+      const voiceBtn = document.createElement('button');
+      voiceBtn.className = 'voice-btn';
+      voiceBtn.innerHTML = '🔊';
+      voiceBtn.onclick = () => toggleSpeech(voiceBtn, m.content);
+      wrapper.appendChild(voiceBtn);
+    }
+    
+    chat.appendChild(wrapper);
   });
   chat.scrollTop = chat.scrollHeight;
 }
@@ -758,6 +926,8 @@ async function sendMessage() {
     const emotion = analyzeEmotion(reply);
     if (emotion) setTimeout(() => setSprite(emotion), 500);
     saveState();
+    
+    if (document.getElementById('auto-speak').checked) speak(reply);
   } catch (e) {
     typing.remove();
     alert('Ошибка: ' + e.message);
@@ -826,11 +996,13 @@ function saveState() {
 function openSettings() {
   document.getElementById('prompt').value = state.prompt;
   document.getElementById('settings-modal').classList.add('active');
+  loadVoices();
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
 function saveSettings() {
   state.prompt = document.getElementById('prompt').value;
   localStorage.setItem('masha_prompt', state.prompt);
+  localStorage.setItem('selected_voice', document.getElementById('voice-select').value);
   closeSettings();
 }
 
