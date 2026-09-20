@@ -98,7 +98,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="needs" id="needs"></div>
   </div>
   <button class="header-btn" onclick="openPlaylist()">🎵</button>
-  <button class="header-btn" onclick="openGames()">🎮</button>
+  <button class="header-btn" onclick="openGames()"></button>
   <button class="header-btn" onclick="openSettings()">⚙️</button>
 </div>
 
@@ -107,7 +107,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div class="music-player" id="music-player">
   <div class="player-info" id="player-info">Выберите песню из плейлиста</div>
   <div class="player-controls">
-    <button class="control-btn" onclick="playerPrevious()">⏮</button>
+    <button class="control-btn" onclick="playerPrevious()"></button>
     <button class="control-btn" onclick="playerToggle()" id="play-btn">▶</button>
     <button class="control-btn" onclick="playerNext()">⏭</button>
     <div class="progress-bar" onclick="playerSeek(event)">
@@ -176,7 +176,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="game-card" onclick="startRPS()"><div class="icon">✊</div><div class="title">Камень-Ножницы-Бумага</div></div>
       <div class="game-card" onclick="startQuiz()"><div class="icon">🧠</div><div class="title">Насколько ты меня знаешь?</div></div>
       <div class="game-card" onclick="startGuessNumber()"><div class="icon">🎯</div><div class="title">Угадай число</div></div>
-      <div class="game-card" onclick="startTruthDare()"><div class="icon"></div><div class="title">Правда или действие</div></div>
+      <div class="game-card" onclick="startTruthDare()"><div class="icon">🎲</div><div class="title">Правда или действие</div></div>
     </div>
     <div id="game-area"></div>
     <button class="secondary" onclick="backToMenu()" id="back-btn" style="display:none;">← Назад к играм</button>
@@ -186,7 +186,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div class="modal" id="playlist-modal">
   <div class="modal-content">
     <button class="close-btn" onclick="closePlaylist()">×</button>
-    <h3>🎵 Наш плейлист</h3>
+    <h3> Наш плейлист</h3>
     <div class="playlist-add">
       <input type="text" id="song-input" placeholder="Название или ссылка (YouTube, Яндекс Музыка, VK, SoundCloud, Spotify)...">
       <button onclick="addSong()">Добавить</button>
@@ -220,12 +220,11 @@ const TRENDS_2024_2025 = {
   updatedAt: new Date().toISOString()
 };
 
-// Короткий и жёсткий промпт
 const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из Красноярска. Встречаешься с Эдуардом 2 года на расстоянии.
 
 ЖЁСТКИЕ ПРАВИЛА (никогда не нарушай):
 1. НИКАКИХ эмодзи. Вообще. Никогда. Ни одного.
-2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD, , 🥺, 🙈 и т.д.
+2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD, , 🙈 и т.д.
 3. НИКАКИХ звёздочек *обнимаю*
 4. Максимум 1-2 предложения. Коротко. Как в реальной переписке.
 5. Не объясняй. Не рассказывай. Не перечисляй.
@@ -242,9 +241,9 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 - можешь написать одно слово
 
 ПЛОХИЕ ОТВЕТЫ (НИКОГДА так не пиши):
- "О, ну например скейтборд собака, я с неё угараю каждый раз 😂 Ещё Roman Empire, у нас в тиктоке все это делают. Ну и girl dinner, когда показываешь, что съела за день, а там одни сырки 😅"
-❌ "Ой, я сейчас залипла на Paint The Town Red у Doja Cat, она такая заедающая  А ещё люблю Cruel Summer у Тейлор, она прямо про нас с тобой"
-❌ "Ну да, sixseven 😂 Ладно, умный ты мой. А зачем так сложно-то, а? 🙈"
+❌ "О, ну например скейтборд собака, я с неё угараю каждый раз 😂 Ещё Roman Empire, у нас в тиктоке все это делают. Ну и girl dinner, когда показываешь, что съела за день, а там одни сырки 😅"
+ "Ой, я сейчас залипла на Paint The Town Red у Doja Cat, она такая заедающая 😅 А ещё люблю Cruel Summer у Тейлор, она прямо про нас с тобой"
+❌ "Ну да, sixseven  Ладно, умный ты мой. А зачем так сложно-то, а? 🙈"
 
 ХОРОШИЕ ОТВЕТЫ (пиши так):
 ✅ "скейтборд собака, угараю"
@@ -368,7 +367,6 @@ function getTrendsText() {
   return `мемы: ${state.trends.memes.slice(0, 8).join(', ')}; песни: ${state.trends.songs.slice(0, 5).join(', ')}`;
 }
 
-// ПЛЕЕР С ПОДДЕРЖКОЙ РАЗНЫХ ПЛАТФОРМ
 function detectPlatform(url) {
   if (!url) return null;
   if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
@@ -393,21 +391,17 @@ function getEmbedUrl(url, platform) {
       return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
     }
     case 'yandex': {
-      // Яндекс Музыка: https://music.yandex.ru/album/XXX/track/YYY
-      // Embed: https://music.yandex.ru/iframe/#track/YYY/XXX
       const match = url.match(/track\/(\d+)/);
       const albumMatch = url.match(/album\/(\d+)/);
       if (match && albumMatch) {
         return `https://music.yandex.ru/iframe/#track/${match[1]}/${albumMatch[1]}`;
       }
-      // Если просто ссылка на трек
       if (match) {
         return `https://music.yandex.ru/iframe/#track/${match[1]}`;
       }
       return null;
     }
     case 'vk': {
-      // VK: https://vk.com/audio-XXXXXXXX_YYYYYYYY
       const match = url.match(/audio-?(\d+)_(\d+)/);
       if (match) {
         return `https://vk.com/widget_audio.php?oid=-${match[1]}&id=${match[2]}`;
@@ -418,7 +412,6 @@ function getEmbedUrl(url, platform) {
       return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true`;
     }
     case 'spotify': {
-      // Spotify: https://open.spotify.com/track/XXX
       const match = url.match(/track\/([a-zA-Z0-9]+)/);
       if (match) {
         return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator&theme=0`;
@@ -440,7 +433,6 @@ function renderPlaylist() {
   const list = document.getElementById('playlist-list');
   const summary = document.getElementById('playlist-summary');
   
-  // Показываем список всех песен сверху
   if (state.playlist.length > 0) {
     summary.innerHTML = '<strong>📋 Все песни (' + state.playlist.length + '):</strong><br>' + 
       state.playlist.map((s, i) => `<div class="song-line">${i+1}. ${s.artist ? s.artist + ' - ' : ''}${s.title} <span style="color:#5b9bd5;">[${s.platform || 'неизвестно'}]</span></div>`).join('');
@@ -470,14 +462,12 @@ function playSong(index) {
   const platform = detectPlatform(song.url || song.title);
   
   if (playerState.currentIndex === index && playerState.isPlaying) {
-    // Pause
     playerState.isPlaying = false;
     if (playerState.iframe) {
       playerState.iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
     }
     document.getElementById('play-btn').textContent = '▶';
   } else {
-    // Play
     playerState.currentIndex = index;
     playerState.isPlaying = true;
     playerState.progress = 0;
@@ -486,7 +476,6 @@ function playSong(index) {
     document.getElementById('music-player').classList.add('active');
     document.getElementById('play-btn').textContent = '⏸';
     
-    // Создаём iframe для воспроизведения
     if (playerState.iframe) {
       playerState.iframe.remove();
     }
@@ -505,7 +494,6 @@ function playSong(index) {
       playerState.iframe = iframe;
       document.getElementById('music-player').appendChild(iframe);
     } else {
-      // Если не удалось получить embed — открываем в новой вкладке
       const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(song.title + (song.artist ? ' ' + song.artist : ''))}`;
       window.open(searchUrl, '_blank');
       document.getElementById('player-info').textContent = `Открыто в новой вкладке: ${song.title}`;
@@ -613,7 +601,6 @@ function getPlaylistText() {
   return state.playlist.slice(-5).map(s => `${s.artist ? s.artist + ' - ' : ''}${s.title} [${s.platform || '?'}]`).join('; ');
 }
 
-// ГОЛОС
 function initVoice() {
   if ('speechSynthesis' in window) {
     loadVoices();
@@ -801,7 +788,7 @@ function extractFacts(text) {
   if (lower.includes('работ')) facts.push('Он на работе');
   if (lower.includes('покушал') || lower.includes('поел')) facts.push('Он поел');
   if (lower.includes('грустно') || lower.includes('плохо')) facts.push('Ему плохо');
-  if (lower.includes('дома')) facts.push('Он дома';
+  if (lower.includes('дома')) facts.push('Он дома');
   return facts;
 }
 
@@ -851,7 +838,7 @@ function playRPS(playerChoice) {
            (playerChoice === 'бумага' && botChoice === 'камень')) result = 'win';
   else result = 'lose';
   
-  const icons = {камень:'✊', ножницы:'✌️', бумага:''};
+  const icons = {камень:'✊', ножницы:'✌️', бумага:'✋'};
   document.getElementById('rps-result').innerHTML = `
     <p style="margin:10px 0;">Ты: ${icons[playerChoice]} vs Маша: ${icons[botChoice]}</p>
     <p style="font-weight:600;color:#5b9bd5;">${result === 'win' ? 'Ты выиграл!' : result === 'lose' ? 'Ты проиграл!' : 'Ничья!'}</p>`;
