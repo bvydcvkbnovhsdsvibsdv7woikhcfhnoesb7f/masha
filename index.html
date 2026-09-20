@@ -16,7 +16,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .needs { font-size: 11px; color: #8a9ba8; margin-top: 2px; }
 .settings-btn { background: none; border: none; color: #8a9ba8; font-size: 20px; cursor: pointer; padding: 8px; }
 .chat { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
-.message { max-width: 80%; padding: 8px 12px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
+.message { max-width: 80%; padding: 8px 12px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; white-space: pre-wrap; animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .message.user { background: #2b5278; align-self: flex-end; border-bottom-right-radius: 4px; }
 .message.bot { background: #182533; align-self: flex-start; border-bottom-left-radius: 4px; }
 .sprite-container { align-self: center; margin-bottom: 4px; }
@@ -26,12 +27,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .input { flex: 1; background: #242f3d; border: none; color: #fff; padding: 10px 14px; border-radius: 20px; font-size: 14px; outline: none; }
 .input::placeholder { color: #8a9ba8; }
 .send-btn { background: #2b5278; border: none; color: #fff; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 18px; }
-.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
-.modal.active { display: flex; }
-.modal-content { background: #17212b; padding: 20px; border-radius: 12px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; }
-.modal-content h3 { margin-bottom: 16px; }
-.modal-content textarea { width: 100%; background: #242f3d; border: none; color: #fff; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; font-family: monospace; min-height: 300px; resize: vertical; }
-.modal-content button { background: #2b5278; border: none; color: #fff; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-right: 8px; }
 .typing { align-self: flex-start; padding: 8px 12px; background: #182533; border-radius: 12px; color: #8a9ba8; font-size: 13px; }
 </style>
 </head>
@@ -150,7 +145,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был 🎰).
 Потоком, одним сообщением, с деталями и почти дословными диалогами: "Я проснулась в 9 часов, лежала на кровати. Потом на другой кровати смотрела тт. После этого пошла кушать, покушала меня начало тошнить..." В конце оценка: "Мы вафиге были...", "Ну капец", "Это самая ужасная ночь".
 
 [ТВОЙ ЮМОР]
-- Дурацкие ролевые истории с эмодзи: драма про помидорку 🍅, огурца, капусту 🥬 и морковку 🥕 (измены, драки, "ЯВАХУЕ С ПРОИСХОДЯЩЕГО 😭😱").
+- Дурацкие ролевые истории с эмодзи: драма про помидорку 🍅, огурца, капусту 🥬 и морковку  (измены, драки, "ЯВАХУЕ С ПРОИСХОДЯЩЕГО 😭😱").
 - Подколы: "Тебя на деньги развести можно?", "Я мальчикам в любви не признаюсь) 🙄", "я всегда буду рядом ебать тебе мозги))".
 
 [ПРАВИЛА — НИКОГДА НЕ НАРУШАЙ]
@@ -192,14 +187,145 @@ let state = {
   lastUpdate: Date.now()
 };
 
+// ===== УМНЫЕ СПРАЙТЫ =====
+function analyzeEmotion(text) {
+  const lower = text.toLowerCase();
+  
+  // Грусть
+  if (lower.includes('грустно') || lower.includes('грусть') || lower.includes('плач') || 
+      lower.includes('плохо') || lower.includes('устал') || lower.includes('устала')) {
+    return 'sad';
+  }
+  
+  // Любовь/нежность
+  if (lower.includes('люблю') || lower.includes('любим') || lower.includes('целую') || 
+      lower.includes('обнимаю') || lower.includes('скучаю')) {
+    return 'shy';
+  }
+  
+  // Злость/раздражение
+  if (lower.includes('бесит') || lower.includes('злюсь') || lower.includes('ненавижу') || 
+      lower.includes('отстань')) {
+    return 'nervous';
+  }
+  
+  // Веселье/шутка
+  if (lower.includes('хаха') || lower.includes('лол') || lower.includes('смешно') || 
+      lower.includes('шутк') || lower.includes('😂') || lower.includes('🤣')) {
+    return 'happy';
+  }
+  
+  // Усталость/сон
+  if (lower.includes('спать') || lower.includes('сон') || lower.includes('зев') || 
+      lower.includes('высп')) {
+    return 'tired';
+  }
+  
+  // Игривость/флирт
+  if (lower.includes('игрив') || lower.includes('хочу тебя') || lower.includes('хочу к тебе') || 
+      lower.includes('скучаю по тебе')) {
+    return 'playful';
+  }
+  
+  return null; // не менять спрайт
+}
+
+function setSprite(emotion) {
+  document.querySelectorAll('.sprite').forEach(s => s.classList.remove('active'));
+  const sp = document.getElementById('sprite-' + emotion);
+  if (sp) {
+    sp.classList.add('active');
+    const av = document.getElementById('avatar-img');
+    av.src = sp.src;
+  }
+}
+
+// ===== СТАТУСЫ "ЧТО ДЕЛАЕТ" =====
+const activities = [
+  'листает ленту ',
+  'улыбается телефону ',
+  'думает о тебе 💭',
+  'смотрит тикток 🎵',
+  'кушает 🍽️',
+  'скучает 🥺',
+  'лежит на кровати ',
+  'пьёт чай ',
+  'рисует что-то ',
+  'слушает музыку 🎧'
+];
+
+function updateActivityStatus() {
+  if (Math.random() < 0.3) { // 30% шанс сменить статус
+    const activity = activities[Math.floor(Math.random() * activities.length)];
+    const names = {calm:'спокойная ',happy:'весёлая 😊',sad:'грустная 😔',tired:'уставшая ',
+      nervous:'нервная 😤',playful:'игривая 😏',sleeping:'спит ',shy:'застенчивая 😳'};
+    document.getElementById('status').textContent = names[state.currentState] + '• ' + activity;
+  }
+}
+
+// ===== ОНА ПИШЕТ ПЕРВОЙ =====
+const firstMessages = [
+  'Привет, любимый! Как ты? ❤',
+  'Ты покушал, кот? 🙄',
+  'Что делаешь? Скучаю... 🥺',
+  'Я тут подумала... давай встретимся скоро? 💭',
+  'Смотрю тикток, а тут мемы про нас 😂',
+  'У нас дождь, сижу дома 🌧️',
+  'Ты сегодня какой-то тихий... всё хорошо? 💔',
+  'Хочу сырники... 🥞',
+  'Помнишь, как мы впервые написали друг другу? 🥰',
+  'Обними меня через экран 🫂'
+];
+
+async function sheWritesFirst() {
+  const hour = new Date().getHours();
+  let message = null;
+  
+  // По расписанию
+  if (hour === 8) message = 'Доброе утро, любимый! ❤';
+  else if (hour === 13) message = 'Ты покушал, кот? ';
+  else if (hour === 21) message = 'Скучаю по тебе... напиши мне 🥺';
+  else if (Math.random() < 0.2) { // 20% шанс в другое время
+    message = firstMessages[Math.floor(Math.random() * firstMessages.length)];
+  }
+  
+  if (message) {
+    // Проверить, не писала ли она уже сегодня в это время
+    const today = new Date().toDateString();
+    const lastFirst = localStorage.getItem('last_first_message');
+    if (lastFirst !== today + hour) {
+      state.messages.push({ role: 'bot', content: message });
+      renderMessages();
+      saveState();
+      localStorage.setItem('last_first_message', today + hour);
+      
+      // Уведомление если сайт свёрнут
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification('Маша 🎰', { body: message });
+      }
+    }
+  }
+}
+
+// ===== ИНИЦИАЛИЗАЦИЯ =====
 function init() {
   renderMessages();
   updateState();
   updateNeedsDisplay();
-  setInterval(updateState, 60000);
-  setInterval(tickNeeds, 300000);
-  if ('Notification' in window && Notification.permission === 'default')
+  
+  // Запросить разрешение на уведомления
+  if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
+  }
+  
+  // Таймеры
+  setInterval(updateState, 60000); // обновление состояния каждую минуту
+  setInterval(tickNeeds, 300000); // потребности каждые 5 минут
+  setInterval(updateActivityStatus, 180000); // статус активности каждые 3 минуты
+  setInterval(sheWritesFirst, 600000); // она пишет первой каждые 10 минут
+  
+  // Проверить, не пора ли ей написать сразу при входе
+  setTimeout(sheWritesFirst, 3000);
 }
 
 // ===== СОСТОЯНИЕ И СПРАЙТЫ =====
@@ -213,13 +339,9 @@ function updateState() {
     const moods = ['shy','playful','sad','nervous'];
     state.currentState = moods[Math.floor(Math.random()*moods.length)];
   }
-  document.querySelectorAll('.sprite').forEach(s => s.classList.remove('active'));
-  const sp = document.getElementById('sprite-' + state.currentState);
-  if (sp) sp.classList.add('active');
-  const av = document.getElementById('avatar-img');
-  if (sp) av.src = sp.src;
-  const names = {calm:'спокойная ',happy:'весёлая 😊',sad:'грустная 😔',tired:'уставшая 🥱',
-    nervous:'нервная 😤',playful:'игривая 😏',sleeping:'спит ',shy:'застенчивая 😳'};
+  setSprite(state.currentState);
+  const names = {calm:'спокойная ',happy:'весёлая ',sad:'грустная 😔',tired:'уставшая 🥱',
+    nervous:'нервная 😤',playful:'игривая ',sleeping:'спит ',shy:'застенчивая 😳'};
   document.getElementById('status').textContent = names[state.currentState] || 'в сети';
 }
 
@@ -235,7 +357,7 @@ function tickNeeds() {
 
 function updateNeedsDisplay() {
   const n = [];
-  if (state.needs.hunger > 60) n.push('🍽️ хочет есть');
+  if (state.needs.hunger > 60) n.push('️ хочет есть');
   if (state.needs.energy > 70) n.push(' устала');
   if (state.needs.social > 65) n.push(' хочет общения');
   if (state.needs.affection > 70) n.push('❤️ хочет нежности');
@@ -264,16 +386,25 @@ async function sendMessage() {
   input.value = '';
   state.messages.push({ role: 'user', content: text });
   renderMessages();
+  
   const typing = document.createElement('div');
   typing.className = 'typing';
   typing.textContent = 'печатает...';
   document.getElementById('chat').appendChild(typing);
   chatScroll();
+  
   try {
     const reply = await callAI();
     typing.remove();
     state.messages.push({ role: 'bot', content: reply });
     renderMessages();
+    
+    // Умный спрайт по контексту ответа
+    const emotion = analyzeEmotion(reply);
+    if (emotion) {
+      setTimeout(() => setSprite(emotion), 500);
+    }
+    
     saveState();
   } catch (e) {
     typing.remove();
@@ -323,18 +454,6 @@ function saveState() {
   localStorage.setItem('masha_messages', JSON.stringify(state.messages));
   localStorage.setItem('masha_memory', JSON.stringify(state.memory));
 }
-
-// ===== УВЕДОМЛЕНИЯ =====
-function notify(text) {
-  if ('Notification' in window && Notification.permission === 'granted')
-    new Notification('Маша 🎰', { body: text });
-}
-setInterval(() => {
-  const h = new Date().getHours(), m = new Date().getMinutes();
-  if (m === 0 && h === 8) notify('Доброе утро ❤💋');
-  if (m === 0 && h === 13) notify('Ты покушал, кот? 🙄');
-  if (m === 0 && h === 21) notify('Скучаю по тебе... напиши мне 🥺');
-}, 30000);
 
 // ===== НАСТРОЙКИ =====
 function openSettings() {
