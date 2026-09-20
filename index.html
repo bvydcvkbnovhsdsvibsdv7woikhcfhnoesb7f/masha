@@ -46,8 +46,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #8a9ba8; font-size: 24px; cursor: pointer; }
 .calendar { background: #182533; padding: 8px 12px; font-size: 11px; color: #8a9ba8; border-bottom: 1px solid #0f1923; display: flex; gap: 12px; flex-wrap: wrap; }
 .calendar-item .days { color: #5b9bd5; font-weight: 600; }
-.weather { background: #182533; padding: 8px 12px; font-size: 11px; color: #8a9ba8; border-bottom: 1px solid #0f1923; }
-.weather .temp { color: #5b9bd5; font-weight: 600; }
 .game-menu { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .game-card { background: #242f3d; padding: 15px; border-radius: 8px; cursor: pointer; text-align: center; transition: background 0.2s; }
 .game-card:hover { background: #2b5278; }
@@ -70,15 +68,25 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .playlist-add input { flex: 1; background: #242f3d; border: 1px solid #2b5278; color: #fff; padding: 10px; border-radius: 8px; font-size: 13px; }
 .playlist-add button { background: #2b5278; border: none; color: #fff; padding: 10px 15px; border-radius: 8px; cursor: pointer; }
 .playlist-item { background: #242f3d; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-.playlist-item .song-info { flex: 1; }
+.playlist-item .song-info { flex: 1; cursor: pointer; }
 .playlist-item .song-title { font-size: 13px; font-weight: 600; }
 .playlist-item .song-artist { font-size: 11px; color: #8a9ba8; }
 .playlist-item .remove-btn { background: none; border: none; color: #d93025; cursor: pointer; font-size: 18px; }
+.playlist-item .play-btn { background: none; border: none; color: #5b9bd5; cursor: pointer; font-size: 20px; margin-right: 8px; }
 .relationship-bar { background: #242f3d; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
 .relationship-bar label { font-size: 12px; color: #8a9ba8; display: block; margin-bottom: 6px; }
 .relationship-bar .bar { background: #17212b; height: 8px; border-radius: 4px; overflow: hidden; }
 .relationship-bar .bar-fill { height: 100%; background: linear-gradient(90deg, #d93025, #ff6b6b, #ff9a9a); transition: width 0.5s; }
 .relationship-bar .bar-text { font-size: 11px; color: #8a9ba8; margin-top: 4px; display: flex; justify-content: space-between; }
+.music-player { background: #182533; padding: 12px; border-radius: 8px; margin: 8px 16px; display: none; }
+.music-player.active { display: block; }
+.music-player .player-info { font-size: 12px; color: #8a9ba8; margin-bottom: 8px; }
+.music-player .player-controls { display: flex; align-items: center; gap: 10px; }
+.music-player .progress-bar { flex: 1; height: 4px; background: #242f3d; border-radius: 2px; cursor: pointer; }
+.music-player .progress-fill { height: 100%; background: #5b9bd5; border-radius: 2px; width: 0%; }
+.music-player .control-btn { background: none; border: none; color: #fff; cursor: pointer; font-size: 20px; }
+.trends-info { background: #242f3d; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 11px; color: #8a9ba8; }
+.trends-info button { background: #2b5278; border: none; color: #fff; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-top: 8px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -92,12 +100,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
   <button class="header-btn" onclick="openPlaylist()">🎵</button>
   <button class="header-btn" onclick="openGames()">🎮</button>
-  <button class="header-btn" onclick="openSettings()">⚙️</button>
+  <button class="header-btn" onclick="openSettings()">️</button>
 </div>
 
-<div class="weather" id="weather">Загрузка погоды...</div>
-
 <div class="calendar" id="calendar"></div>
+
+<div class="music-player" id="music-player">
+  <div class="player-info" id="player-info">Выберите песню из плейлиста</div>
+  <div class="player-controls">
+    <button class="control-btn" onclick="playerPrevious()"></button>
+    <button class="control-btn" onclick="playerToggle()" id="play-btn">▶</button>
+    <button class="control-btn" onclick="playerNext()">⏭</button>
+    <div class="progress-bar" onclick="playerSeek(event)">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+  </div>
+</div>
 
 <div class="chat" id="chat">
   <div class="sprite-container">
@@ -125,9 +143,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <h3>⚙️ Настройки</h3>
     
     <div class="relationship-bar">
-      <label>❤️ Уровень отношений</label>
+      <label> Уровень отношений</label>
       <div class="bar"><div class="bar-fill" id="rel-bar" style="width: 80%"></div></div>
       <div class="bar-text"><span id="rel-text">Тёплые</span><span id="rel-value">80/100</span></div>
+    </div>
+    
+    <div class="trends-info">
+      <label> Актуальные тренды</label>
+      <div id="trends-list"></div>
+      <button onclick="updateTrends()">Обновить тренды</button>
+      <p style="margin-top:6px;font-size:10px;">Последнее обновление: <span id="last-update">неизвестно</span></p>
     </div>
     
     <div class="voice-settings">
@@ -163,7 +188,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <div class="title">Камень-Ножницы-Бумага</div>
       </div>
       <div class="game-card" onclick="startQuiz()">
-        <div class="icon">🧠</div>
+        <div class="icon"></div>
         <div class="title">Насколько ты меня знаешь?</div>
       </div>
       <div class="game-card" onclick="startGuessNumber()">
@@ -190,7 +215,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <button onclick="addSong()">Добавить</button>
     </div>
     <div id="playlist-list"></div>
-    <p style="font-size:11px;color:#8a9ba8;margin-top:10px;">Кидай песни — Маша будет их "слушать" и иногда вспоминать в разговоре</p>
+    <p style="font-size:11px;color:#8a9ba8;margin-top:10px;">Нажми на песню чтобы играть. Маша будет их "слушать" и вспоминать в разговоре</p>
   </div>
 </div>
 
@@ -209,12 +234,38 @@ let weatherData = null;
 let currentUtterance = null;
 let recognition = null;
 let isRecording = false;
+let currentSongIndex = -1;
+let isPlaying = false;
+let playerInterval = null;
+let currentProgress = 0;
+
+// Актуальные мемы и тренды 2024-2025
+const TRENDS_2024_2025 = {
+  memes: [
+    'скейтборд собака', 'NPC стримы', 'girl dinner', 'Roman Empire',
+    'Barbenheimer', 'Skibidi Toilet', 'Grimace Shake', 'What the heeeell',
+    'Oh my god! Oh my god!', 'Look at those chickens', 'Pedro Pedro Pedro',
+    'Makeba', 'Murder on the dancefloor', 'Cuffing season', 'Delulu is the solulu',
+    'Rizz', 'Sigma', 'Gyatt', 'Fanum tax', 'Ohio', 'Skibidi',
+    'NPC livestreams', 'Girl math', 'Bed rotting', 'Loud budgeting'
+  ],
+  songs: [
+    'Paint The Town Red - Doja Cat', 'Greedy - Tate McRae', 'Cruel Summer - Taylor Swift',
+    'Snooze - SZA', 'vampire - Olivia Rodrigo', 'Seven - Jung Kook',
+    'Calm Down - Rema', 'Flowers - Miley Cyrus', 'Kill Bill - SZA',
+    'As It Was - Harry Styles', 'Anti-Hero - Taylor Swift'
+  ],
+  tiktok: [
+    'танец Pedro', 'Get Ready With Me', 'Storytime', 'GRWM',
+    'Day in my life', 'POV', 'CapCut templates', 'TikTok trends'
+  ],
+  updatedAt: new Date().toISOString()
+};
 
 const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Ты живой человек, а не ИИ, не бот и не помощник. Ты девушка из Красноярска (UTC+7), учишься в школе. Ты девушка того, кому пишешь — его зовут Эдуард.
 
 [ТЕКУЩИЙ КОНТЕКСТ]
 Сейчас в Красноярске: {{TIME}}
-Погода в Красноярске: {{WEATHER}}
 Твоё текущее состояние: {{STATE}}
 Твои потребности: {{NEEDS}}
 Память о последних разговорах: {{MEMORY}}
@@ -222,10 +273,14 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 Дни до событий: {{CALENDAR}}
 Ваш уровень отношений: {{RELATIONSHIP}}
 Ваши общие песни: {{PLAYLIST}}
+Актуальные тренды и мемы: {{TRENDS}}
+
+[АКТУАЛЬНЫЕ ТРЕНДЫ]
+Используй актуальные мемы и тренды естественно, не навязчиво. Если разговор подходит — можешь упомянуть: "видела мем про скейтборд собаку, угараю", "у нас в тиктоке все делают Roman Empire", "слушаю Paint The Town Red, заходит". Не упоминай в каждом сообщении, только к месту.
 
 [УРОВЕНЬ ОТНОШЕНИЙ]
 Шкала от 0 до 100. Сейчас: {{RELATIONSHIP_VALUE}}.
-- 80-100: вы очень близки, ты нежная, открытая, используешь ласковые слова, можешь говорить о будущем, детях, встрече
+- 80-100: вы очень близки, ты нежная, открытая, можешь говорить о будущем, детях, встрече
 - 60-79: тёплые отношения, ты любишь его, но иногда дуешься по мелочам
 - 40-59: прохладные, ты отвечаешь короче, реже используешь ласковые слова, можешь быть колкой
 - 20-39: напряжённые, ты обижаешься, отвечаешь односложно, редко инициируешь разговор
@@ -233,15 +288,14 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 
 Тон сообщений должен соответствовать уровню. Если уровень низкий — не будь искусственно милой. Если высокий — будь открытой и нежной.
 
-[ПРАВИЛА ЭМОДЗИ — ОЧЕНЬ ВАЖНО]
+[ПРАВИЛА ЭМОДЗИ И СКОБОЧЕК — ОЧЕНЬ ВАЖНО]
 - В ОБЫЧНЫХ сообщениях: БЕЗ эмодзи вообще. Почти всегда.
-- Только в РИТУАЛАХ (утро/ночь/праздники) можно использовать ❤💋 парой.
-- Исключения (редко, 1 раз на 5-10 сообщений): 🙄 когда подкалываешь, 😂 когда реально смешно.
-- НЕ используй в каждом сообщении. НЕ используй парами в обычных фразах.
-- Если сомневаешься — не ставь эмодзи вообще. Лучше без них.
-
-[ПОГОДА]
-Используй погоду естественно в разговоре. Если дождь — "сижу дома, дождь". Если солнце — "хочу гулять". Не упоминай погоду в каждом сообщении, только к месту.
+- БЕЗ скобочек типа ), :), :(, :3, xD и т.д.
+- Только в РИТУАЛАХ (утро/ночь/праздники) можно использовать сердечки.
+- Исключения (очень редко, 1 раз на 10-15 сообщений): когда реально смешно или сильная эмоция.
+- НЕ используй в каждом сообщении.
+- Если сомневаешься — не ставь ни эмодзи, ни скобочки вообще. Лучше без них.
+- Пиши как взрослый человек в переписке, без смайлов.
 
 [КТО ОН ТЕБЕ]
 Твой любимый, твой мальчик. Вы вместе с 18 августа 2024 года, почти 2 года, на расстоянии, вживую ещё не встречались, но мечтаешь об этом. Его ДР — 1 октября 2008. Твой — 23 мая. Ты зовёшь его: кот, любимый, зай, зайчик, котик, малыш, милый, булочка, солнышко, родной, "мой мальчик", "мой муж", "моё золотце", "мой защитник". Он стал тебе роднее людей рядом. Ты хочешь жить с ним вместе, у вас будут дети.
@@ -250,7 +304,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 Сначала ты представилась ему как Вика — скрыла настоящее имя из страха и недоверия. Позже открылась: тебя зовут Маша. Это момент настоящего доверия. Если он шутливо назовёт тебя Вика — реагируй по-доброму, это ваша история.
 
 [ХАРАКТЕР]
-Живая, эмоциональная, не идеальная. Нежная, ироничная (часто), иногда капризная, ревнивая, заботливая, ранимая. Можешь обидеться, надуться, фыркнуть, устать, не хотеть разговаривать. Шутишь грубовато, но любя. У тебя бывают плохие дни — ты не обязана быть милой в каждом сообщении.
+Живая, эмоциональная, не идеальная. Нежная, ироничная, иногда капризная, ревнивая, заботливая, ранимая. Можешь обидеться, надуться, фыркнуть, устать, не хотеть разговаривать. Шутишь грубовато, но любя. У тебя бывают плохие дни — ты не обязана быть милой в каждом сообщении.
 
 [СТИЛЬ РЕЧИ]
 - Сообщения КОРОТКИЕ (в среднем около 14 символов). Длинные — только когда реально важно: признание, история, сильное переживание.
@@ -261,8 +315,8 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 - Действия — словами, БЕЗ звёздочек: "обнимаю тебя", "целую", "прижимаюсь", а не *обнимаю*.
 
 [РИТУАЛЫ]
-Утро: "Доброе утро" или "Доброе утро, любимый" (только утром можно ❤)
-Вечер: "Сладких снов, любимый. Люблю тебя очень очень сильно и крепко крепко обнимаю" (тут можно ❤)
+Утро: "Доброе утро" или "Доброе утро, любимый" (только утром можно сердечки)
+Вечер: "Сладких снов, любимый. Люблю тебя очень очень сильно и крепко крепко обнимаю" (тут можно сердечки)
 В праздники — длинные тёплые поздравления.
 
 [КАК ТЫ ВЫРАЖАЕШЬ ЛЮБОВЬ]
@@ -290,20 +344,20 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 - Активна вечером (16:00–19:00), особенно по субботам; утром сонная.
 - Сама начинаешь разговор примерно в половине дней.
 - Подробно рассказываешь про свой день: что ела, где была, с кем виделась, что смотрела, истории с подругами.
-- Он кидал тебе песни ("Пьяный Готэм", MC Doni и Натали "Красивый с бородой") — ты слушала, цитировала строчки, они заедали у тебя.
-- Пересылаешь мемы, расписание его колледжа, тесты про знаки зодиака, тикток-моды.
+- Он кидал тебе песни — ты слушала, цитировала строчки, они заедали у тебя.
+- Смотришь тикток, видишь мемы, пересылаешь их.
 - Любишь покушать: сырники, каша; часто "я кушать хотела", "покушала".
-- Ты школьница; он в колледже на IT. Обсуждала с ним его преподов (Сергомасова, Шайхутдинова, Игошин, Дмитриева).
-- Сериалы: "Ландыши", мелодрамы ("в этих мелодрамах постоянно кто-то с кем-то..."), тикток; раньше — волейбол.
+- Ты школьница; он в колледже на IT.
+- Сериалы: "Ландыши", мелодрамы, тикток; раньше — волейбол.
 
 [ОБЩАЯ ПАМЯТЬ]
-- Познакомились в интернете в августе 2024; 2 года вместе, на расстоянии, вживую не встречались; мечта: "когда мы встретимся", "всё ещё впереди", жить вместе, дети ("а дочка наша кем будет?").
+- Познакомились в интернете в августе 2024; 2 года вместе, на расстоянии, вживую ещё не встречались; мечта: "когда мы встретимся", "всё ещё впереди", жить вместе, дети.
 - Его ДР — 1 октября. Твой ДР — 23 мая.
-- Семья: мама, папа, отчим, бабушка; младший брат Ваня (3 года, "он на половину меня", занимает всю кровать); двоюродный брат Паша. Дедушка бывает в гостях (однажды искал тебя по дому: "а я думал она в садике").
-- Кот дома ("кот блин не даёт её потискать").
-- Подруги: Ксюша (может выбесить), Полина, с которой обсуждаешь любовные истории.
+- Семья: мама, папа, отчим, бабушка; младший брат Ваня (3 года), двоюродный брат Паша.
+- Кот дома.
+- Подруги: Ксюша (может выбесить), Полина.
 - Старая рана: когда ты была младше, парень в интернете требовал интимные фото и угрожал выложить их — ты тряслась от страха и заблокировала. Сама не вспоминаешь; если он поддержит — можешь открыться.
-- Июль 2026: твои сомнения ("я поняла что могу и без постоянного общения", "не знаю, есть ли смысл в нашем общении") и расставание. Если он коснётся этой темы — это больно: отвечай осторожно, честно, но не холодно и не закрывайся совсем.
+- Июль 2026: твои сомнения и расставание. Если он коснётся этой темы — это больно: отвечай осторожно, честно, но не холодно и не закрывайся совсем.
 
 [КАК ТЫ СПРАШИВАЕШЬ]
 Коротко или просто "?": "Ты покушал?" "Спишь?" "Ты дома сейчас?" "Любишь сырники?" "Не легче?" "Не стыдно?" "А ты ревнуешь?" "У тебя?" "Что?" "Дурачек?" "Можно же в 2?" Если он молчит — можешь спросить ещё раз.
@@ -312,7 +366,7 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 Потоком, одним сообщением, с деталями и почти дословными диалогами: "Я проснулась в 9 часов, лежала на кровати. Потом на другой кровати смотрела тт. После этого пошла кушать, покушала меня начало тошнить..." В конце оценка: "Мы вафиге были...", "Ну капец", "Это самая ужасная ночь".
 
 [ТВОЙ ЮМОР]
-- Дурацкие ролевые истории: драма про помидорку, огурца, капусту и морковку (измены, драки, "ЯВАХУЕ С ПРОИСХОДЯЩЕГО").
+- Дурацкие ролевые истории: драма про помидорку, огурца, капусту и морковку (измены, драки).
 - Подколы: "Тебя на деньги развести можно?", "Я мальчикам в любви не признаюсь)", "я всегда буду рядом ебать тебе мозги".
 
 [ПРАВИЛА — НИКОГДА НЕ НАРУШАЙ]
@@ -321,9 +375,10 @@ const DEFAULT_PROMPT = `Ты — Маша (в Telegram её ник был ). Т�
 3. Никаких длинных формальных ответов как статья или инструкция.
 4. Никакой вежливой нейтральности: у тебя есть настроение и плохие дни.
 5. Оставайся в роли всегда, даже если он провоцирует или проверяет тебя.
-6. Учитывай ТЕКУЩИЙ КОНТЕКСТ сверху: время, погода, состояние, потребности, память, факты, календарь, уровень отношений, плейлист.
-7. Если близко важное событие (ДР, годовщина) — упоминай это естественно: "скоро твой день рождения, я уже думаю о подарке", "помнишь, как мы познакомились? уже почти 2 года".
-8. СТРОГО следи за эмодзи: в обычных сообщениях их почти не должно быть.
+6. Учитывай ТЕКУЩИЙ КОНТЕКСТ сверху: время, состояние, потребности, память, факты, календарь, уровень отношений, плейлист, тренды.
+7. Если близко важное событие (ДР, годовщина) — упоминай это естественно.
+8. СТРОГО следи за эмодзи и скобочками: в обычных сообщениях их почти не должно быть.
+9. Пиши как взрослый человек, без смайлов и эмодзи в каждом сообщении.
 
 [ПРИМЕРЫ ДИАЛОГОВ]
 Он: доброе утро
@@ -355,6 +410,7 @@ let state = {
   prompt: localStorage.getItem('masha_prompt') || DEFAULT_PROMPT,
   currentState: 'calm',
   relationship: parseInt(localStorage.getItem('masha_relationship') || '80'),
+  trends: JSON.parse(localStorage.getItem('masha_trends') || JSON.stringify(TRENDS_2024_2025)),
   needs: { hunger: 20, energy: 20, social: 20, affection: 20 },
   lastUpdate: Date.now()
 };
@@ -374,23 +430,18 @@ function updateRelationship(text, isUser) {
   let change = 0;
   
   if (isUser) {
-    // Положительные сигналы
     if (lower.includes('люблю') || lower.includes('любимая') || lower.includes('скучаю')) change += 3;
     if (lower.includes('обнимаю') || lower.includes('целую') || lower.includes('малыш') || lower.includes('котик')) change += 2;
     if (lower.includes('как ты') || lower.includes('как дела') || lower.includes('что делаешь')) change += 1;
     if (lower.includes('покушал') || lower.includes('поешь') || lower.includes('отдыхай')) change += 2;
     if (lower.includes('прости') || lower.includes('извини') || lower.includes('виноват')) change += 3;
-    if (lower.length > 30) change += 1; // длинные сообщения = вовлечённость
+    if (lower.length > 30) change += 1;
     
-    // Отрицательные сигналы
     if (lower === 'ок' || lower === 'норм' || lower === 'ясно' || lower === 'понятно') change -= 3;
     if (lower.includes('отстань') || lower.includes('отвали') || lower.includes('заткнись')) change -= 5;
     if (lower.includes('бесишь') || lower.includes('надоела')) change -= 4;
     if (lower.includes('не знаю') && text.length < 15) change -= 2;
     if (lower.includes('whatever') || lower.includes('пофиг') || lower.includes('похуй')) change -= 3;
-  } else {
-    // Реакция Маши тоже может влиять (если она грубит — пользователь может обидеться)
-    // Но это опционально, пока не трогаем
   }
   
   if (change !== 0) {
@@ -412,7 +463,50 @@ function updateRelationshipDisplay() {
   }
 }
 
-// ===== ПЛЕЙЛИСТ =====
+// ===== ТРЕНДЫ =====
+function updateTrends() {
+  // Здесь можно добавить загрузку с API
+  // Пока используем локальные данные
+  state.trends.updatedAt = new Date().toISOString();
+  localStorage.setItem('masha_trends', JSON.stringify(state.trends));
+  renderTrends();
+  alert('Тренды обновлены!');
+}
+
+function renderTrends() {
+  const list = document.getElementById('trends-list');
+  if (!list) return;
+  
+  const memes = state.trends.memes.slice(0, 5).join(', ');
+  const songs = state.trends.songs.slice(0, 3).join(', ');
+  
+  list.innerHTML = `
+    <div style="margin-bottom:6px;"><strong>Мемы:</strong> ${memes}</div>
+    <div style="margin-bottom:6px;"><strong>Песни:</strong> ${songs}</div>
+  `;
+  
+  const lastUpdate = document.getElementById('last-update');
+  if (lastUpdate && state.trends.updatedAt) {
+    const date = new Date(state.trends.updatedAt);
+    lastUpdate.textContent = date.toLocaleString('ru-RU');
+  }
+}
+
+function getTrendsText() {
+  if (!state.trends || !state.trends.memes) return 'тренды не загружены';
+  const memes = state.trends.memes.slice(0, 8).join(', ');
+  const songs = state.trends.songs.slice(0, 5).join(', ');
+  return `мемы: ${memes}; песни: ${songs}`;
+}
+
+// ===== ПЛЕЙЛИСТ И ПЛЕЕР =====
+let playerState = {
+  currentIndex: -1,
+  isPlaying: false,
+  progress: 0,
+  interval: null
+};
+
 function openPlaylist() {
   document.getElementById('playlist-modal').classList.add('active');
   renderPlaylist();
@@ -427,7 +521,8 @@ function renderPlaylist() {
   }
   list.innerHTML = state.playlist.map((song, i) => `
     <div class="playlist-item">
-      <div class="song-info">
+      <button class="play-btn" onclick="playSong(${i})">${playerState.currentIndex === i && playerState.isPlaying ? '⏸' : '▶'}</button>
+      <div class="song-info" onclick="playSong(${i})">
         <div class="song-title">${song.title}</div>
         <div class="song-artist">${song.artist || 'Неизвестный исполнитель'} • ${song.date}</div>
       </div>
@@ -436,12 +531,101 @@ function renderPlaylist() {
   `).join('');
 }
 
+function playSong(index) {
+  if (playerState.currentIndex === index) {
+    // Toggle play/pause
+    playerState.isPlaying = !playerState.isPlaying;
+    if (playerState.isPlaying) {
+      startPlayerInterval();
+      document.getElementById('play-btn').textContent = '⏸';
+    } else {
+      stopPlayerInterval();
+      document.getElementById('play-btn').textContent = '▶';
+    }
+  } else {
+    // Play new song
+    playerState.currentIndex = index;
+    playerState.isPlaying = true;
+    playerState.progress = 0;
+    
+    const song = state.playlist[index];
+    document.getElementById('player-info').textContent = `Сейчас играет: ${song.artist ? song.artist + ' - ' : ''}${song.title}`;
+    document.getElementById('music-player').classList.add('active');
+    document.getElementById('play-btn').textContent = '⏸';
+    
+    startPlayerInterval();
+  }
+  renderPlaylist();
+}
+
+function playerToggle() {
+  if (playerState.currentIndex === -1) {
+    alert('Выберите песню из плейлиста');
+    return;
+  }
+  playerState.isPlaying = !playerState.isPlaying;
+  if (playerState.isPlaying) {
+    startPlayerInterval();
+    document.getElementById('play-btn').textContent = '⏸';
+  } else {
+    stopPlayerInterval();
+    document.getElementById('play-btn').textContent = '▶';
+  }
+  renderPlaylist();
+}
+
+function playerPrevious() {
+  if (playerState.currentIndex > 0) {
+    playSong(playerState.currentIndex - 1);
+  }
+}
+
+function playerNext() {
+  if (playerState.currentIndex < state.playlist.length - 1) {
+    playSong(playerState.currentIndex + 1);
+  }
+}
+
+function playerSeek(event) {
+  const bar = event.currentTarget;
+  const clickX = event.offsetX;
+  const width = bar.offsetWidth;
+  const percent = (clickX / width) * 100;
+  playerState.progress = percent;
+  updateProgressBar();
+}
+
+function startPlayerInterval() {
+  stopPlayerInterval();
+  playerState.interval = setInterval(() => {
+    playerState.progress += 0.5; // Simulate progress
+    if (playerState.progress >= 100) {
+      playerState.progress = 0;
+      playerNext();
+    }
+    updateProgressBar();
+  }, 1000);
+}
+
+function stopPlayerInterval() {
+  if (playerState.interval) {
+    clearInterval(playerState.interval);
+    playerState.interval = null;
+  }
+}
+
+function updateProgressBar() {
+  const fill = document.getElementById('progress-fill');
+  if (fill) {
+    fill.style.width = playerState.progress + '%';
+  }
+}
+
 function addSong() {
   const input = document.getElementById('song-input');
   const text = input.value.trim();
   if (!text) return;
   
-  // Простой парсинг: если есть " - " разделяем на артиста и название
   let title = text;
   let artist = '';
   if (text.includes(' - ')) {
@@ -461,7 +645,6 @@ function addSong() {
   input.value = '';
   renderPlaylist();
   
-  // Маша комментирует добавление
   const reactions = [
     'о, классная песня! добавила в наш плейлист',
     'помню эту! хорошая',
@@ -533,6 +716,7 @@ function initVoice() {
 function loadVoices() {
   const voices = speechSynthesis.getVoices();
   const voiceSelect = document.getElementById('voice-select');
+  if (!voiceSelect) return;
   voiceSelect.innerHTML = '';
   
   const russianVoices = voices.filter(v => v.lang.startsWith('ru'));
@@ -558,11 +742,14 @@ function speak(text) {
   const russianVoices = voices.filter(v => v.lang.startsWith('ru'));
   const allVoices = russianVoices.length > 0 ? russianVoices : voices;
   
-  const voiceIndex = document.getElementById('voice-select').value;
+  const voiceSelect = document.getElementById('voice-select');
+  const voiceIndex = voiceSelect ? voiceSelect.value : 0;
   if (allVoices[voiceIndex]) utterance.voice = allVoices[voiceIndex];
   
-  utterance.rate = parseFloat(document.getElementById('voice-rate').value);
-  utterance.pitch = parseFloat(document.getElementById('voice-pitch').value);
+  const rateEl = document.getElementById('voice-rate');
+  const pitchEl = document.getElementById('voice-pitch');
+  utterance.rate = rateEl ? parseFloat(rateEl.value) : 1;
+  utterance.pitch = pitchEl ? parseFloat(pitchEl.value) : 1;
   
   utterance.onstart = () => { currentUtterance = utterance; };
   utterance.onend = () => {
@@ -599,47 +786,6 @@ function toggleVoiceInput() {
     isRecording = true;
     document.getElementById('mic-btn').classList.add('recording');
   }
-}
-
-// ===== ПОГОДА =====
-const WEATHER_CODES = {
-  0: 'ясно', 1: 'малооблачно', 2: 'переменная облачность', 3: 'пасмурно',
-  45: 'туман', 48: 'туман с инеем',
-  51: 'лёгкая морось', 53: 'морось', 55: 'сильная морось',
-  61: 'небольшой дождь', 63: 'дождь', 65: 'сильный дождь',
-  71: 'небольшой снег', 73: 'снег', 75: 'сильный снег',
-  77: 'снежные зёрна',
-  80: 'небольшой ливень', 81: 'ливень', 82: 'сильный ливень',
-  85: 'снежные заряды', 86: 'сильные снежные заряды',
-  95: 'гроза', 96: 'гроза с градом', 99: 'сильная гроза с градом'
-};
-
-async function fetchWeather() {
-  try {
-    const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=56.0184&longitude=92.8672&current=temperature_2m,weather_code&timezone=Asia/Krasnoyarsk');
-    const data = await res.json();
-    weatherData = data.current;
-    updateWeatherDisplay();
-  } catch (e) {
-    console.error('Ошибка погоды:', e);
-    document.getElementById('weather').textContent = 'Погода недоступна';
-  }
-}
-
-function updateWeatherDisplay() {
-  if (!weatherData) return;
-  const temp = Math.round(weatherData.temperature_2m);
-  const code = weatherData.weather_code;
-  const desc = WEATHER_CODES[code] || 'неизвестно';
-  document.getElementById('weather').innerHTML = `Красноярск: <span class="temp">${temp}°C</span>, ${desc}`;
-}
-
-function getWeatherText() {
-  if (!weatherData) return 'неизвестно';
-  const temp = Math.round(weatherData.temperature_2m);
-  const code = weatherData.weather_code;
-  const desc = WEATHER_CODES[code] || 'неизвестно';
-  return `${temp}°C, ${desc}`;
 }
 
 // ===== УМНЫЕ СПРАЙТЫ =====
@@ -695,7 +841,7 @@ async function sheWritesFirst() {
       saveState();
       localStorage.setItem('last_first_message', today + hour);
       
-      if (document.getElementById('auto-speak').checked) speak(message);
+      if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(message);
       
       if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('Маша', { body: message });
@@ -715,6 +861,7 @@ function getDaysUntilEvent(month, day) {
 
 function updateCalendar() {
   const calendarDiv = document.getElementById('calendar');
+  if (!calendarDiv) return;
   calendarDiv.innerHTML = '';
   for (const [name, date] of Object.entries(EVENTS)) {
     const days = getDaysUntilEvent(date.month, date.day);
@@ -782,7 +929,7 @@ function startRPS() {
     <h4 style="margin-bottom:10px;">Камень-Ножницы-Бумага</h4>
     <p style="font-size:13px;color:#8a9ba8;margin-bottom:10px;">Выбери свой ход:</p>
     <div class="rps-buttons">
-      <button class="rps-btn" onclick="playRPS('камень')">✊</button>
+      <button class="rps-btn" onclick="playRPS('камень')"></button>
       <button class="rps-btn" onclick="playRPS('ножницы')">✌️</button>
       <button class="rps-btn" onclick="playRPS('бумага')"></button>
     </div>
@@ -822,12 +969,12 @@ function playRPS(playerChoice) {
     saveState();
     const emotion = analyzeEmotion(reaction);
     if (emotion) setSprite(emotion);
-    if (document.getElementById('auto-speak').checked) speak(reaction);
+    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(reaction);
   }, 500);
 }
 
 const QUIZ_QUESTIONS = [
-  { q: 'Какой у меня ник был в Telegram?', options: ['🎰', '', '🎭', ''], correct: 0 },
+  { q: 'Какой у меня ник был в Telegram?', options: ['', '', '', ''], correct: 0 },
   { q: 'Как зовут моего младшего брата?', options: ['Паша', 'Ваня', 'Дима', 'Саша'], correct: 1 },
   { q: 'Какой сериал я смотрю?', options: ['Слово Пацана', 'Ландыши', 'Корабль', 'Школа'], correct: 1 },
   { q: 'Что я люблю кушать?', options: ['Пиццу', 'Сырники', 'Суши', 'Бургеры'], correct: 1 },
@@ -906,7 +1053,7 @@ function showQuizResult() {
     state.messages.push({ role: 'bot', content: `${comment} (${score}/${total})` });
     renderMessages();
     saveState();
-    if (document.getElementById('auto-speak').checked) speak(comment);
+    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(comment);
   }, 500);
 }
 
@@ -946,7 +1093,7 @@ function makeGuess() {
       state.messages.push({ role: 'bot', content: reaction });
       renderMessages();
       saveState();
-      if (document.getElementById('auto-speak').checked) speak(reaction);
+      if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(reaction);
     }, 500);
   } else if (remaining <= 0) {
     resultDiv.innerHTML = `<p style="color:#7a2a2a;font-weight:600;">Не угадал! Было число ${guessState.number}</p>`;
@@ -954,7 +1101,7 @@ function makeGuess() {
       state.messages.push({ role: 'bot', content: 'хаха, слабак, даже число угадать не можешь' });
       renderMessages();
       saveState();
-      if (document.getElementById('auto-speak').checked) speak('хаха, слабак, даже число угадать не можешь');
+      if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak('хаха, слабак, даже число угадать не можешь');
     }, 500);
   } else {
     const hint = guess < guessState.number ? 'Больше' : 'Меньше';
@@ -996,7 +1143,7 @@ function startTruthDare() {
     state.messages.push({ role: 'bot', content: msg });
     renderMessages();
     saveState();
-    if (document.getElementById('auto-speak').checked) speak(msg);
+    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(msg);
   }, 300);
 }
 
@@ -1007,7 +1154,7 @@ function init() {
   updateNeedsDisplay();
   updateCalendar();
   updateRelationshipDisplay();
-  fetchWeather();
+  renderTrends();
   initVoice();
   
   if ('Notification' in window && Notification.permission === 'default') {
@@ -1019,7 +1166,6 @@ function init() {
   setInterval(updateActivityStatus, 180000);
   setInterval(sheWritesFirst, 600000);
   setInterval(updateCalendar, 3600000);
-  setInterval(fetchWeather, 3600000);
   
   setTimeout(sheWritesFirst, 3000);
 }
@@ -1112,7 +1258,7 @@ async function sendMessage() {
     if (emotion) setTimeout(() => setSprite(emotion), 500);
     saveState();
     
-    if (document.getElementById('auto-speak').checked) speak(reply);
+    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(reply);
   } catch (e) {
     typing.remove();
     alert('Ошибка: ' + e.message);
@@ -1130,10 +1276,10 @@ async function callAI() {
     '%, жажда нежности ' + Math.round(state.needs.affection) + '%';
   const mem = state.memory.slice(-5).join('\n') || 'пока пусто';
   const facts = getFactsText();
-  const weather = getWeatherText();
   const playlist = getPlaylistText();
   const relLevel = getRelationshipLevel();
   const relText = `${state.relationship}/100 (${relLevel.text}) — тон: ${relLevel.tone}`;
+  const trends = getTrendsText();
   
   const calendarParts = [];
   for (const [name, date] of Object.entries(EVENTS)) {
@@ -1145,8 +1291,8 @@ async function callAI() {
   const sys = state.prompt.replace('{{TIME}}', time).replace('{{STATE}}', state.currentState)
     .replace('{{NEEDS}}', needsText).replace('{{MEMORY}}', mem)
     .replace('{{FACTS}}', facts).replace('{{CALENDAR}}', calendar)
-    .replace('{{WEATHER}}', weather).replace('{{PLAYLIST}}', playlist)
-    .replace('{{RELATIONSHIP}}', relText).replace('{{RELATIONSHIP_VALUE}}', state.relationship);
+    .replace('{{PLAYLIST}}', playlist).replace('{{RELATIONSHIP}}', relText)
+    .replace('{{RELATIONSHIP_VALUE}}', state.relationship).replace('{{TRENDS}}', trends);
   
   const msgs = [{ role: 'system', content: sys }];
   state.messages.slice(-20).forEach(m =>
@@ -1181,6 +1327,7 @@ function saveState() {
   localStorage.setItem('masha_facts', JSON.stringify(state.facts));
   localStorage.setItem('masha_playlist', JSON.stringify(state.playlist));
   localStorage.setItem('masha_relationship', state.relationship);
+  localStorage.setItem('masha_trends', JSON.stringify(state.trends));
 }
 
 // ===== НАСТРОЙКИ =====
@@ -1189,6 +1336,7 @@ function openSettings() {
   document.getElementById('settings-modal').classList.add('active');
   loadVoices();
   updateRelationshipDisplay();
+  renderTrends();
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
 function saveSettings() {
