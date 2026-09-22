@@ -8,6 +8,11 @@ export default async function handler(req, res) {
 
   const API_KEY = process.env.OPENROUTER_API_KEY;
 
+  if (!API_KEY) {
+    console.error('API_KEY not found in environment variables');
+    return res.status(500).json({ error: 'API key not configured' });
+  }
+
   try {
     const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     const parsedBody = JSON.parse(body);
@@ -15,12 +20,11 @@ export default async function handler(req, res) {
     const { text, image, systemPrompt } = parsedBody;
     let finalUserMessage = text || "";
 
-    // ШАГ 1: Vision-модели (актуальные бесплатные)
+    // ШАГ 1: Vision-модели (если есть фото)
     if (image) {
       const visionModels = [
-        "qwen/qwen-2.5-vl-7b-instruct:free",
         "meta-llama/llama-3.2-11b-vision-instruct:free",
-        "google/gemma-3-4b-vl:free"
+        "qwen/qwen-2-vl-7b-instruct:free"
       ];
       
       let visionSuccess = false;
@@ -68,12 +72,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // ШАГ 2: Текстовые модели (актуальные бесплатные)
+    // ШАГ 2: Текстовые модели (ОБНОВЛЕННЫЙ СПИСОК БЕСПЛАТНЫХ)
     const textModels = [
-      "deepseek/deepseek-chat-v3-0324:free",
-      "qwen/qwen3-235b-a22b:free",
-      "meta-llama/llama-3.3-70b-instruct:free",
-      "google/gemma-3-4b-it:free"
+      "meta-llama/llama-3-8b-instruct:free",
+      "qwen/qwen-2.5-72b-instruct:free",
+      "mistralai/mistral-7b-instruct:free",
+      "google/gemma-2-9b-it:free"
     ];
     
     let reply = null;
@@ -102,7 +106,10 @@ export default async function handler(req, res) {
         if (mashaRes.ok) {
           const mashaData = await mashaRes.json();
           reply = mashaData.choices?.[0]?.message?.content;
-          if (reply) break;
+          if (reply) {
+            console.log(`Success with model: ${model}`);
+            break;
+          }
         } else {
           const errText = await mashaRes.text();
           console.error(`Model ${model} failed: ${mashaRes.status}`, errText);
@@ -113,7 +120,7 @@ export default async function handler(req, res) {
     }
 
     if (!reply) {
-      throw new Error('Все модели не ответили. Проверь лимиты на OpenRouter.');
+      throw new Error('Все бесплатные модели временно недоступны. Попробуйте через 5 минут.');
     }
 
     res.setHeader('Access-Control-Allow-Origin', '*');
