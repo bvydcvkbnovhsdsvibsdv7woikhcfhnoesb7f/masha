@@ -9,8 +9,8 @@ export default async function handler(req, res) {
   const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 
   if (!DEEPSEEK_KEY) {
-    console.error('DEEPSEEK_API_KEY not found');
-    return res.status(500).json({ error: 'DeepSeek API key not configured' });
+    console.error('DEEPSEEK_API_KEY not found in environment variables');
+    return res.status(500).json({ error: 'API key not configured' });
   }
 
   try {
@@ -18,29 +18,22 @@ export default async function handler(req, res) {
     const parsedBody = JSON.parse(body);
     
     const { text, image, systemPrompt } = parsedBody;
-    let finalUserMessage = text || "";
 
-    // Формируем сообщение: если есть фото — отправляем как мультимодальное
-    let messages = [{ role: "system", content: systemPrompt }];
+    // Формируем сообщение пользователя
+    let userContent;
     
     if (image) {
-      // Мультимодальный запрос (фото + текст)
-      messages.push({
-        role: "user",
-        content: [
-          { type: "text", text: text || "Отреагируй на это фото." },
-          { type: "image_url", image_url: { url: image } }
-        ]
-      });
+      // Мультимодальный запрос: фото + текст
+      userContent = [
+        { type: "text", text: text || "Отреагируй на это фото." },
+        { type: "image_url", image_url: { url: image } }
+      ];
     } else {
       // Только текст
-      messages.push({
-        role: "user",
-        content: finalUserMessage
-      });
+      userContent = text || "";
     }
 
-    // Отправляем в DeepSeek (модель с поддержкой vision)
+    // Отправляем в DeepSeek
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -48,15 +41,20 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'deepseek-v4.1-flash', // или 'deepseek-v4-flash-vision-exp'
-        messages: messages,
+        model: 'deepseek-v4.1-flash',
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent }
+        ],
         max_tokens: 200,
+        temperature: 0.85,
         stream: false
       })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('DeepSeek API error:', response.status, errorText);
       throw new Error(`DeepSeek API ${response.status}: ${errorText}`);
     }
 
