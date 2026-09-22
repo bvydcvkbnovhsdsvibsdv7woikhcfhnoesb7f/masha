@@ -6,7 +6,6 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  // Твой токен Hugging Face
   const HF_TOKEN = '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';
 
   try {
@@ -16,64 +15,57 @@ export default async function handler(req, res) {
     const { text, image, systemPrompt } = parsedBody;
     let finalUserMessage = text || "";
 
-    // ШАГ 1: Если есть фото, отправляем в Vision-модель
+    // ШАГ 1: Если есть фото
     if (image) {
       try {
-        const visionRes = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2-VL-7B-Instruct', {
+        const visionRes = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2-VL-7B-Instruct/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + HF_TOKEN,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            inputs: [
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: "Кратко опиши, что на этом фото: кто, что, где, эмоции, детали. Максимум 2-3 предложения. Пиши на русском." },
-                  { type: "image_url", image_url: { url: image } }
-                ]
-              }
-            ],
-            parameters: {
-              max_new_tokens: 200,
-              temperature: 0.7
-            }
+            model: "Qwen/Qwen2-VL-7B-Instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "Кратко опиши, что на этом фото на русском (2-3 предложения)." },
+                { type: "image_url", image_url: { url: image } }
+              ]
+            }],
+            max_tokens: 200
           })
         });
 
         if (visionRes.ok) {
           const visionData = await visionRes.json();
-          const description = visionData[0]?.generated_text || "Не удалось разобрать фото";
-          finalUserMessage = `[Пользователь отправил фото. Описание изображения: ${description}] ${text ? 'Он также написал: ' + text : 'Отреагируй на это фото.'}`;
+          const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
+          finalUserMessage = `[Пользователь отправил фото. Описание: ${description}] ${text || 'Отреагируй на фото.'}`;
         } else {
-          const errorText = await visionRes.text();
-          console.error('Vision error:', visionRes.status, errorText);
-          finalUserMessage = `[Пользователь отправил фото, но не удалось его разобрать] ${text || 'Отреагируй на это фото.'}`;
+          console.error('Vision error:', await visionRes.text());
+          finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
         }
-      } catch (visionError) {
-        console.error('Vision failed:', visionError);
-        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на это фото.'}`;
+      } catch (e) {
+        console.error('Vision failed:', e);
+        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
       }
     }
 
-    // ШАГ 2: Отправляем в основную модель Маши
-    const mashaRes = await fetch('https://api-inference.huggingface.co/models/meta-llama/Llama-3.1-8B-Instruct', {
+    // ШАГ 2: Основная модель
+    const mashaRes = await fetch('https://api-inference.huggingface.co/models/meta-llama/Llama-3.1-8B-Instruct/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + HF_TOKEN,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        inputs: [
+        model: "meta-llama/Llama-3.1-8B-Instruct",
+        messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: finalUserMessage }
         ],
-        parameters: {
-          max_new_tokens: 150,
-          temperature: 0.85,
-          do_sample: true
-        }
+        max_tokens: 150,
+        temperature: 0.85
       })
     });
 
@@ -83,7 +75,7 @@ export default async function handler(req, res) {
     }
 
     const mashaData = await mashaRes.json();
-    const reply = mashaData[0]?.generated_text || "Что-то пошло не так...";
+    const reply = mashaData.choices?.[0]?.message?.content || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
