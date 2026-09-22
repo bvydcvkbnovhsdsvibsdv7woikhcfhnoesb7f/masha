@@ -86,6 +86,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .trends-info button { background: #2b5278; border: none; color: #fff; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-top: 8px; font-size: 12px; }
 .playlist-summary { background: #17212b; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 11px; color: #8a9ba8; max-height: 150px; overflow-y: auto; }
 .playlist-summary .song-line { padding: 3px 0; border-bottom: 1px solid #242f3d; }
+.attach-btn { background: none; border: none; font-size: 22px; cursor: pointer; padding: 0 5px; color: #8a9ba8; }
+.attach-btn:hover { color: #fff; }
+.image-preview { position: relative; max-width: 200px; margin: 5px 10px; display: none; }
+.image-preview img { width: 100%; border-radius: 8px; border: 1px solid #444; }
+.remove-preview { position: absolute; top: -8px; right: -8px; background: #ff4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-weight: bold; }
+.message img.user-photo { max-width: 250px; border-radius: 12px; margin-top: 4px; display: block; }
 </style>
 </head>
 <body>
@@ -98,7 +104,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="needs" id="needs"></div>
   </div>
   <button class="header-btn" onclick="openPlaylist()">🎵</button>
-  <button class="header-btn" onclick="openGames()"></button>
+  <button class="header-btn" onclick="openGames()">🎮</button>
   <button class="header-btn" onclick="openSettings()">⚙️</button>
 </div>
 
@@ -107,7 +113,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div class="music-player" id="music-player">
   <div class="player-info" id="player-info">Выберите песню из плейлиста</div>
   <div class="player-controls">
-    <button class="control-btn" onclick="playerPrevious()"></button>
+    <button class="control-btn" onclick="playerPrevious()">⏮</button>
     <button class="control-btn" onclick="playerToggle()" id="play-btn">▶</button>
     <button class="control-btn" onclick="playerNext()">⏭</button>
     <div class="progress-bar" onclick="playerSeek(event)">
@@ -131,6 +137,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 <div class="input-area">
   <button class="mic-btn" id="mic-btn" onclick="toggleVoiceInput()">🎙️</button>
+  <button class="attach-btn" onclick="document.getElementById('file-input').click()">📎</button>
+  <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+  <div id="image-preview" class="image-preview">
+    <img id="preview-img" src="" alt="">
+    <button class="remove-preview" onclick="removePreview()">×</button>
+  </div>
   <input class="input" id="input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter')sendMessage()">
   <button class="send-btn" onclick="sendMessage()">➤</button>
 </div>
@@ -186,7 +198,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div class="modal" id="playlist-modal">
   <div class="modal-content">
     <button class="close-btn" onclick="closePlaylist()">×</button>
-    <h3> Наш плейлист</h3>
+    <h3>🎵 Наш плейлист</h3>
     <div class="playlist-add">
       <input type="text" id="song-input" placeholder="Название или ссылка (YouTube, Яндекс Музыка, VK, SoundCloud, Spotify)...">
       <button onclick="addSong()">Добавить</button>
@@ -212,6 +224,7 @@ let currentUtterance = null;
 let recognition = null;
 let isRecording = false;
 let playerState = { currentIndex: -1, isPlaying: false, progress: 0, interval: null, iframe: null };
+let selectedImageBase64 = null;
 
 const TRENDS_2024_2025 = {
   memes: ['скейтборд собака', 'NPC стримы', 'Roman Empire', 'Skibidi Toilet', 'Pedro Pedro Pedro', 'Delulu is the solulu', 'Rizz', 'Sigma', 'Gyatt', 'Fanum tax', 'Ohio', 'Girl dinner', 'Bed rotting', 'Loud budgeting', 'Cuffing season'],
@@ -224,7 +237,7 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 
 ЖЁСТКИЕ ПРАВИЛА (никогда не нарушай):
 1. НИКАКИХ эмодзи. Вообще. Никогда. Ни одного.
-2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD, , 🙈 и т.д.
+2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD, 🙈 и т.д.
 3. НИКАКИХ звёздочек *обнимаю*
 4. Максимум 1-2 предложения. Коротко. Как в реальной переписке.
 5. Не объясняй. Не рассказывай. Не перечисляй.
@@ -242,7 +255,7 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 
 ПЛОХИЕ ОТВЕТЫ (НИКОГДА так не пиши):
 ❌ "О, ну например скейтборд собака, я с неё угараю каждый раз 😂 Ещё Roman Empire, у нас в тиктоке все это делают. Ну и girl dinner, когда показываешь, что съела за день, а там одни сырки 😅"
- "Ой, я сейчас залипла на Paint The Town Red у Doja Cat, она такая заедающая 😅 А ещё люблю Cruel Summer у Тейлор, она прямо про нас с тобой"
+❌ "Ой, я сейчас залипла на Paint The Town Red у Doja Cat, она такая заедающая 😅 А ещё люблю Cruel Summer у Тейлор, она прямо про нас с тобой"
 ❌ "Ну да, sixseven  Ладно, умный ты мой. А зачем так сложно-то, а? 🙈"
 
 ХОРОШИЕ ОТВЕТЫ (пиши так):
@@ -284,6 +297,18 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 он: покушала → ты: да, а ты
 он: спокойной ночи → ты: сладких снов, люблю тебя
 
+[ОБМЕН КОНТЕНТОМ]
+Ты можешь скидывать ссылки. Используй реальные домены:
+🎵 Музыка: music.yandex.ru, vk.com/audio, open.spotify.com
+🎬 Фильмы/Сериалы: kinopoisk.ru, okko.tv, netflix.com, ivi.ru
+🎌 Аниме: anilibria.tv, animego.org, shikimori.one
+😂 Мемы/Видео: tiktok.com, youtube.com, imgur.com, pikabu.ru
+📸 Фото: i.imgur.com, pinterest.com
+
+ПРАВИЛА:
+1. Если хочешь что-то "прислать", просто вставь ссылку в текст: "смотри какой мем https://imgur.com/abc"
+2. Если он скидывает ссылку, посмотри на домен и отреагируй по смыслу (не говори "я не могу открыть").
+3. ЕСЛИ ОН СКИДЫВАЕТ ФОТО (в сообщении будет пометка "[Пользователь отправил фото. Описание: ...]"), реагируй на это описание так, будто ты реально это видишь. Удивляйся, смейся, комментируй. НИКОГДА не пиши "я не вижу фото" или "я ИИ".
 Всё. Коротко. Без эмодзи. Без скобочек.`;
 
 let state = {
@@ -574,12 +599,7 @@ function addSong() {
   input.value = '';
   renderPlaylist();
   
-  const reactions = [
-    'добавила',
-    'ок, запомнила',
-    'ага, слушала уже',
-    'норм песня'
-  ];
+  const reactions = ['добавила', 'ок, запомнила', 'ага, слушала уже', 'норм песня'];
   const reaction = reactions[Math.floor(Math.random() * reactions.length)];
   
   setTimeout(() => {
@@ -862,7 +882,7 @@ function playRPS(playerChoice) {
 }
 
 const QUIZ_QUESTIONS = [
-  { q: 'Какой у меня ник был в Telegram?', options: ['🎰', '🌸', '', '🌺'], correct: 0 },
+  { q: 'Какой у меня ник был в Telegram?', options: ['🎰', '🌸', '🍀', '🌺'], correct: 0 },
   { q: 'Как зовут моего младшего брата?', options: ['Паша', 'Ваня', 'Дима', 'Саша'], correct: 1 },
   { q: 'Какой сериал я смотрю?', options: ['Слово Пацана', 'Ландыши', 'Корабль', 'Школа'], correct: 1 },
   { q: 'Что я люблю кушать?', options: ['Пиццу', 'Сырники', 'Суши', 'Бургеры'], correct: 1 },
@@ -1064,7 +1084,14 @@ function renderMessages() {
     wrapper.className = 'message-wrapper ' + m.role;
     const msgDiv = document.createElement('div');
     msgDiv.className = 'message ' + m.role;
-    msgDiv.textContent = m.content;
+    
+    // Исправление для отображения фото в текущей сессии
+    if (m.role === 'user' && m.content === '[Отправил фото]' && selectedImageBase64) {
+       msgDiv.innerHTML = '<img src="' + selectedImageBase64 + '" class="user-photo">';
+    } else {
+       msgDiv.textContent = m.content;
+    }
+    
     wrapper.appendChild(msgDiv);
     if (m.role === 'bot') {
       const voiceBtn = document.createElement('button');
@@ -1078,24 +1105,32 @@ function renderMessages() {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// === ОБНОВЛЕННАЯ ФУНКЦИЯ ОТПРАВКИ С ПОДДЕРЖКОЙ ФОТО ===
 async function sendMessage() {
   const input = document.getElementById('input');
   const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  state.messages.push({ role: 'user', content: text });
+  
+  if (!text && !selectedImageBase64) return;
+
+  state.messages.push({ 
+    role: 'user', 
+    content: selectedImageBase64 ? '[Отправил фото]' : text 
+  });
   renderMessages();
   updateFacts(text);
   updateRelationship(text, true);
   
   const typing = document.createElement('div');
   typing.className = 'typing';
-  typing.textContent = 'печатает...';
+  typing.textContent = selectedImageBase64 ? 'Маша смотрит фото...' : 'печатает...';
   document.getElementById('chat').appendChild(typing);
   document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight;
   
+  input.value = '';
+  removePreview();
+  
   try {
-    const reply = await callAI();
+    const reply = await callAI(text);
     typing.remove();
     state.messages.push({ role: 'bot', content: reply });
     renderMessages();
@@ -1109,7 +1144,8 @@ async function sendMessage() {
   }
 }
 
-async function callAI() {
+// === ОБНОВЛЕННАЯ ФУНКЦИЯ ВЫЗОВА API С ПОДДЕРЖКОЙ ФОТО ===
+async function callAI(text) {
   const time = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
   const needsText = 'голод ' + Math.round(state.needs.hunger) + '%, усталость ' + Math.round(state.needs.energy) + '%';
   const mem = state.memory.slice(-5).join('\n') || 'пока пусто';
@@ -1138,12 +1174,16 @@ async function callAI() {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, messages: msgs, temperature: 0.85, max_tokens: 120 })
+    body: JSON.stringify({ 
+      text: text, 
+      image: selectedImageBase64, 
+      systemPrompt: sys 
+    })
   });
   
   if (!res.ok) throw new Error('API ' + res.status + ': ' + (await res.text()).slice(0, 200));
   const data = await res.json();
-  return data.choices[0].message.content.trim();
+  return data.reply;
 }
 
 setInterval(() => {
@@ -1178,6 +1218,36 @@ function saveSettings() {
   localStorage.setItem('masha_prompt', state.prompt);
   localStorage.setItem('selected_voice', document.getElementById('voice-select').value);
   closeSettings();
+}
+
+// === ФУНКЦИИ ДЛЯ ФОТО ===
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 800;
+      const scaleSize = MAX_WIDTH / img.width;
+      canvas.width = MAX_WIDTH;
+      canvas.height = img.height * scaleSize;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      selectedImageBase64 = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('preview-img').src = selectedImageBase64;
+      document.getElementById('image-preview').style.display = 'block';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removePreview() {
+  selectedImageBase64 = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('image-preview').style.display = 'none';
 }
 
 init();
