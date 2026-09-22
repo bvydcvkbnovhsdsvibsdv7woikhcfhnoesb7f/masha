@@ -6,11 +6,12 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const API_KEY = process.env.OPENROUTER_API_KEY;
+  const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
+  const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 
-  if (!API_KEY) {
-    console.error('API_KEY not found in environment variables');
-    return res.status(500).json({ error: 'API key not configured' });
+  if (!DEEPSEEK_KEY) {
+    console.error('DEEPSEEK_API_KEY not found');
+    return res.status(500).json({ error: 'DeepSeek API key not configured' });
   }
 
   try {
@@ -20,108 +21,71 @@ export default async function handler(req, res) {
     const { text, image, systemPrompt } = parsedBody;
     let finalUserMessage = text || "";
 
-    // ШАГ 1: Vision-модели (если есть фото)
-    if (image) {
-      const visionModels = [
-        "meta-llama/llama-3.2-11b-vision-instruct:free",
-        "qwen/qwen-2-vl-7b-instruct:free"
-      ];
-      
-      let visionSuccess = false;
-      
-      for (const model of visionModels) {
-        try {
-          const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + API_KEY,
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://masha-mf60.vercel.app',
-              'X-Title': 'Masha Chat'
-            },
-            body: JSON.stringify({
-              model: model,
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "text", text: "Кратко опиши, что на этом фото на русском (2-3 предложения)." },
-                  { type: "image_url", image_url: { url: image } }
-                ]
-              }],
-              max_tokens: 200
-            })
-          });
-
-          if (visionRes.ok) {
-            const visionData = await visionRes.json();
-            const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
-            finalUserMessage = `[Пользователь отправил фото. Описание: ${description}] ${text || 'Отреагируй на фото.'}`;
-            visionSuccess = true;
-            break;
-          } else {
-            const errText = await visionRes.text();
-            console.error(`Vision ${model} failed: ${visionRes.status}`, errText);
-          }
-        } catch (e) {
-          console.error(`Vision ${model} error:`, e);
-        }
-      }
-      
-      if (!visionSuccess) {
-        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
-      }
-    }
-
-    // ШАГ 2: Текстовые модели (ОБНОВЛЕННЫЙ СПИСОК БЕСПЛАТНЫХ)
-    const textModels = [
-      "meta-llama/llama-3-8b-instruct:free",
-      "qwen/qwen-2.5-72b-instruct:free",
-      "mistralai/mistral-7b-instruct:free",
-      "google/gemma-2-9b-it:free"
-    ];
-    
-    let reply = null;
-    
-    for (const model of textModels) {
+    // ШАГ 1: Vision-модель (через OpenRouter, если есть фото)
+    if (image && OPENROUTER_KEY) {
       try {
-        const mashaRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': 'Bearer ' + API_KEY,
+            'Authorization': 'Bearer ' + OPENROUTER_KEY,
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://masha-mf60.vercel.app',
             'X-Title': 'Masha Chat'
           },
           body: JSON.stringify({
-            model: model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: finalUserMessage }
-            ],
-            temperature: 0.85,
-            max_tokens: 150
+            model: "meta-llama/llama-3.2-11b-vision-instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "Кратко опиши, что на этом фото на русском (2-3 предложения)." },
+                { type: "image_url", image_url: { url: image } }
+              ]
+            }],
+            max_tokens: 200
           })
         });
 
-        if (mashaRes.ok) {
-          const mashaData = await mashaRes.json();
-          reply = mashaData.choices?.[0]?.message?.content;
-          if (reply) {
-            console.log(`Success with model: ${model}`);
-            break;
-          }
+        if (visionRes.ok) {
+          const visionData = await visionRes.json();
+          const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
+          finalUserMessage = `[Пользователь отправил фото. Описание: ${description}] ${text || 'Отреагируй на фото.'}`;
         } else {
-          const errText = await mashaRes.text();
-          console.error(`Model ${model} failed: ${mashaRes.status}`, errText);
+          const errText = await visionRes.text();
+          console.error('Vision failed:', visionRes.status, errText);
+          finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
         }
       } catch (e) {
-        console.error(`Model ${model} error:`, e);
+        console.error('Vision error:', e);
+        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
       }
     }
 
-    if (!reply) {
-      throw new Error('Все бесплатные модели временно недоступны. Попробуйте через 5 минут.');
+    // ШАГ 2: Текстовая модель (DeepSeek)
+    const mashaRes = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + DEEPSEEK_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: "deepseek-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: finalUserMessage }
+        ],
+        temperature: 0.85,
+        max_tokens: 150,
+        stream: false
+      })
+    });
+
+    if (!mashaRes.ok) {
+      const errText = await mashaRes.text();
+      throw new Error(`DeepSeek API ${mashaRes.status}: ${errText}`);
     }
+
+    const mashaData = await mashaRes.json();
+    const reply = mashaData.choices?.[0]?.message?.content || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
