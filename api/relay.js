@@ -6,7 +6,8 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const API_KEY = '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';
+  // Твой токен Hugging Face
+  const HF_TOKEN = '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';
 
   try {
     const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
@@ -18,33 +19,37 @@ export default async function handler(req, res) {
     // ШАГ 1: Если есть фото, отправляем в Vision-модель
     if (image) {
       try {
-        const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const visionRes = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2-VL-7B-Instruct', {
           method: 'POST',
           headers: {
-            'Authorization': 'Bearer ' + API_KEY,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://masha-mf60.vercel.app',
-            'X-Title': 'Masha Chat'
+            'Authorization': 'Bearer ' + HF_TOKEN,
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: "qwen/qwen2-vl-7b-instruct:free",
-            messages: [{
-              role: "user",
-              content: [
-                { type: "text", text: "Кратко опиши, что на этом фото: кто, что, где, эмоции, детали. Максимум 2-3 предложения. Пиши на русском." },
-                { type: "image_url", image_url: { url: image } }
-              ]
-            }]
+            inputs: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: "Кратко опиши, что на этом фото: кто, что, где, эмоции, детали. Максимум 2-3 предложения. Пиши на русском." },
+                  { type: "image_url", image_url: { url: image } }
+                ]
+              }
+            ],
+            parameters: {
+              max_new_tokens: 200,
+              temperature: 0.7
+            }
           })
         });
 
         if (visionRes.ok) {
           const visionData = await visionRes.json();
-          const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
+          const description = visionData[0]?.generated_text || "Не удалось разобрать фото";
           finalUserMessage = `[Пользователь отправил фото. Описание изображения: ${description}] ${text ? 'Он также написал: ' + text : 'Отреагируй на это фото.'}`;
         } else {
-          console.error('Vision error:', visionRes.status);
-          finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на это фото.'}`;
+          const errorText = await visionRes.text();
+          console.error('Vision error:', visionRes.status, errorText);
+          finalUserMessage = `[Пользователь отправил фото, но не удалось его разобрать] ${text || 'Отреагируй на это фото.'}`;
         }
       } catch (visionError) {
         console.error('Vision failed:', visionError);
@@ -53,32 +58,32 @@ export default async function handler(req, res) {
     }
 
     // ШАГ 2: Отправляем в основную модель Маши
-    const mashaRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const mashaRes = await fetch('https://api-inference.huggingface.co/models/meta-llama/Llama-3.1-8B-Instruct', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + API_KEY,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://masha-mf60.vercel.app',
-        'X-Title': 'Masha Chat'
+        'Authorization': 'Bearer ' + HF_TOKEN,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
-        messages: [
+        inputs: [
           { role: "system", content: systemPrompt },
           { role: "user", content: finalUserMessage }
         ],
-        temperature: 0.85,
-        max_tokens: 150
+        parameters: {
+          max_new_tokens: 150,
+          temperature: 0.85,
+          do_sample: true
+        }
       })
     });
 
     if (!mashaRes.ok) {
       const errorText = await mashaRes.text();
-      throw new Error(`API ${mashaRes.status}: ${errorText}`);
+      throw new Error(`HF API ${mashaRes.status}: ${errorText}`);
     }
 
     const mashaData = await mashaRes.json();
-    const reply = mashaData.choices?.[0]?.message?.content || "Что-то пошло не так...";
+    const reply = mashaData[0]?.generated_text || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
