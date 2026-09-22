@@ -7,7 +7,6 @@ export default async function handler(req, res) {
   }
 
   const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
-  const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 
   if (!DEEPSEEK_KEY) {
     console.error('DEEPSEEK_API_KEY not found');
@@ -21,71 +20,48 @@ export default async function handler(req, res) {
     const { text, image, systemPrompt } = parsedBody;
     let finalUserMessage = text || "";
 
-    // ШАГ 1: Vision-модель (через OpenRouter, если есть фото)
-    if (image && OPENROUTER_KEY) {
-      try {
-        const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + OPENROUTER_KEY,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://masha-mf60.vercel.app',
-            'X-Title': 'Masha Chat'
-          },
-          body: JSON.stringify({
-            model: "meta-llama/llama-3.2-11b-vision-instruct",
-            messages: [{
-              role: "user",
-              content: [
-                { type: "text", text: "Кратко опиши, что на этом фото на русском (2-3 предложения)." },
-                { type: "image_url", image_url: { url: image } }
-              ]
-            }],
-            max_tokens: 200
-          })
-        });
-
-        if (visionRes.ok) {
-          const visionData = await visionRes.json();
-          const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
-          finalUserMessage = `[Пользователь отправил фото. Описание: ${description}] ${text || 'Отреагируй на фото.'}`;
-        } else {
-          const errText = await visionRes.text();
-          console.error('Vision failed:', visionRes.status, errText);
-          finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
-        }
-      } catch (e) {
-        console.error('Vision error:', e);
-        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на фото.'}`;
-      }
+    // Формируем сообщение: если есть фото — отправляем как мультимодальное
+    let messages = [{ role: "system", content: systemPrompt }];
+    
+    if (image) {
+      // Мультимодальный запрос (фото + текст)
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: text || "Отреагируй на это фото." },
+          { type: "image_url", image_url: { url: image } }
+        ]
+      });
+    } else {
+      // Только текст
+      messages.push({
+        role: "user",
+        content: finalUserMessage
+      });
     }
 
-    // ШАГ 2: Текстовая модель (DeepSeek)
-    const mashaRes = await fetch('https://api.deepseek.com/chat/completions', {
+    // Отправляем в DeepSeek (модель с поддержкой vision)
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + DEEPSEEK_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: "deepseek-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: finalUserMessage }
-        ],
-        temperature: 0.85,
-        max_tokens: 150,
+        model: 'deepseek-v4.1-flash', // или 'deepseek-v4-flash-vision-exp'
+        messages: messages,
+        max_tokens: 200,
         stream: false
       })
     });
 
-    if (!mashaRes.ok) {
-      const errText = await mashaRes.text();
-      throw new Error(`DeepSeek API ${mashaRes.status}: ${errText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeepSeek API ${response.status}: ${errorText}`);
     }
 
-    const mashaData = await mashaRes.json();
-    const reply = mashaData.choices?.[0]?.message?.content || "Что-то пошло не так...";
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
