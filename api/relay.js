@@ -6,7 +6,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const API_KEY = 'sk-orca-JD2nKs39fTGGdUcjnm1WmB6uN5cTu3ef2qbaX9DVbFb';
+  const API_KEY = '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';
 
   try {
     const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     const { text, image, systemPrompt } = parsedBody;
     let finalUserMessage = text || "";
 
-    // ШАГ 1: Если есть фото, отправляем его в бесплатную Vision-модель
+    // ШАГ 1: Если есть фото, отправляем в Vision-модель
     if (image) {
       try {
         const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -38,70 +38,47 @@ export default async function handler(req, res) {
           })
         });
 
-        if (!visionRes.ok) {
-          console.error('Vision API error:', visionRes.status, await visionRes.text());
-          finalUserMessage = `[Пользователь отправил фото, но не удалось его разобрать] ${text || 'Отреагируй на это фото.'}`;
-        } else {
+        if (visionRes.ok) {
           const visionData = await visionRes.json();
           const description = visionData.choices?.[0]?.message?.content || "Не удалось разобрать фото";
           finalUserMessage = `[Пользователь отправил фото. Описание изображения: ${description}] ${text ? 'Он также написал: ' + text : 'Отреагируй на это фото.'}`;
+        } else {
+          console.error('Vision error:', visionRes.status);
+          finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на это фото.'}`;
         }
       } catch (visionError) {
-        console.error('Vision request failed:', visionError);
-        finalUserMessage = `[Пользователь отправил фото, но произошла ошибка при обработке] ${text || 'Отреагируй на это фото.'}`;
+        console.error('Vision failed:', visionError);
+        finalUserMessage = `[Пользователь отправил фото] ${text || 'Отреагируй на это фото.'}`;
       }
     }
 
-    // ШАГ 2: Отправляем в основную модель Маши с fallback
-    let reply = null;
-    let lastError = null;
+    // ШАГ 2: Отправляем в основную модель Маши
+    const mashaRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + API_KEY,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://masha-mf60.vercel.app',
+        'X-Title': 'Masha Chat'
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3.1-8b-instruct:free",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: finalUserMessage }
+        ],
+        temperature: 0.85,
+        max_tokens: 150
+      })
+    });
 
-    // Пробуем несколько моделей по очереди
-    const models = [
-      "orcarouter/free",
-      "deepseek/deepseek-v4-flash-free",
-      "qwen/qwen-2.5-72b-instruct:free"
-    ];
-
-    for (const model of models) {
-      try {
-        const mashaRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + API_KEY,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://masha-mf60.vercel.app',
-            'X-Title': 'Masha Chat'
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: finalUserMessage }
-            ],
-            temperature: 0.85,
-            max_tokens: 150
-          })
-        });
-
-        if (mashaRes.ok) {
-          const mashaData = await mashaRes.json();
-          reply = mashaData.choices?.[0]?.message?.content;
-          if (reply) break; // Успех, выходим из цикла
-        } else {
-          const errorText = await mashaRes.text();
-          console.error(`Model ${model} failed:`, mashaRes.status, errorText);
-          lastError = `${model}: ${mashaRes.status}`;
-        }
-      } catch (modelError) {
-        console.error(`Model ${model} error:`, modelError);
-        lastError = `${model}: ${modelError.message}`;
-      }
+    if (!mashaRes.ok) {
+      const errorText = await mashaRes.text();
+      throw new Error(`API ${mashaRes.status}: ${errorText}`);
     }
 
-    if (!reply) {
-      throw new Error(`Все модели не ответили. Последняя ошибка: ${lastError}`);
-    }
+    const mashaData = await mashaRes.json();
+    const reply = mashaData.choices?.[0]?.message?.content || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -111,9 +88,6 @@ export default async function handler(req, res) {
     console.error("API Error:", e);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
-    res.status(500).send(JSON.stringify({ 
-      error: String(e),
-      details: e.message 
-    }));
+    res.status(500).send(JSON.stringify({ error: String(e) }));
   }
 }
