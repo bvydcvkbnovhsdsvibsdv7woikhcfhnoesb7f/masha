@@ -864,9 +864,12 @@ async function checkInitiative() {
   if (state.userStatus === 'sleeping') return;
 
   const now = Date.now();
+  const sinceLastUser = now - state.lastUserMessageTime;
   const sinceLastMasha = now - state.lastMashaMessageTime;
   
-  if (sinceLastMasha < 25 * 60 * 1000) return;
+  // Пишет только если пользователь не писал больше 30 минут И Маша не писала больше 10 минут
+  if (sinceLastUser < 30 * 60 * 1000) return;
+  if (sinceLastMasha < 10 * 60 * 1000) return;
 
   try {
     const res = await fetch(API_URL, {
@@ -1181,14 +1184,23 @@ function init() {
 function updateState() {
   const hour = new Date().getHours();
   const byHour = {0:'sleeping',1:'sleeping',2:'sleeping',3:'sleeping',4:'sleeping',5:'sleeping',6:'tired',7:'tired',8:'tired',9:'calm',10:'calm',11:'happy',12:'happy',13:'calm',14:'calm',15:'calm',16:'happy',17:'happy',18:'happy',19:'happy',20:'calm',21:'calm',22:'tired',23:'tired'};
-  state.currentState = byHour[hour] || 'calm';
-  if (Math.random() < 0.12) {
-    const moods = ['shy','playful','sad','nervous'];
+  
+  // Меняем настроение чаще (50% вместо 12%)
+  if (Math.random() < 0.5) {
+    const moods = ['calm','happy','sad','tired','nervous','playful','shy'];
     state.currentState = moods[Math.floor(Math.random()*moods.length)];
+  } else {
+    state.currentState = byHour[hour] || 'calm';
   }
+  
   setSprite(state.currentState);
   const names = {calm:'спокойная',happy:'весёлая',sad:'грустная',tired:'уставшая',nervous:'нервная',playful:'игривая',sleeping:'спит',shy:'застенчивая'};
-  document.getElementById('status').textContent = names[state.currentState] || 'в сети';
+  
+  // Обновляем активность чаще
+  const activities = ['листает ленту','улыбается телефону','думает о тебе','смотрит тикток','кушает','скучает','лежит на кровати','пьёт чай','слушает музыку','играет в бравл старс'];
+  const activity = activities[Math.floor(Math.random() * activities.length)];
+  
+  document.getElementById('status').textContent = (names[state.currentState] || 'в сети') + ' • ' + activity;
 }
 
 function tickNeeds() {
