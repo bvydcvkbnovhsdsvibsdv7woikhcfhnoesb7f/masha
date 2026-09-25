@@ -193,13 +193,13 @@ ${historyText}
       userContent = text || "";
     }
 
-    // Формируем messages с историей
+        // Формируем messages с историей (чиним старую роль 'bot')
     const messages = [
       { 
         role: "system", 
         content: `${systemPrompt}\n\nТы сейчас думаешь: ${thought || 'ничего особого'}`
       },
-      ...(history?.slice(-15) || []),
+      ...((history || []).slice(-15).map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content }))),
       { role: "user", content: userContent }
     ];
 
