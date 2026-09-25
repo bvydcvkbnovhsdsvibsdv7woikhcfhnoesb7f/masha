@@ -22,78 +22,29 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     const parsedBody = JSON.parse(body);
-    
-    const { 
-      text, 
-      image, 
-      systemPrompt, 
-      history, 
-      lastThought, 
-      events, 
+
+    const {
+      text,
+      image,
+      systemPrompt,
+      history,
+      lastThought,
+      events,
       userStatus,
-      checkInitiative,
-      getSurprise
+      checkInitiative
     } = parsedBody;
-
-    // === ЭНДПОИНТ: СУРПРИЗ (поиск популярного) ===
-    if (getSurprise) {
-      const surpriseType = parsedBody.surpriseType || 'meme';
-      
-      // Ищем популярный контент по её интересам
-      const searchPrompts = {
-        meme: 'Найди популярный мем 2024-2025 года про отношения, котов, учёбу или повседневную жизнь. Опиши его: что на картинке, какой текст (если есть), в чём прикол.',
-        song: 'Назови 3 самые популярные песни 2024-2025 года, которые могут понравиться 17-летней девушке (поп, инди, альтернатива). Укажи название и исполнителя.',
-        anime: 'Посоветуй популярное аниме 2024-2025 года, которое стоит посмотреть. Краткое описание: жанр, о чём, почему стоит смотреть.',
-        video: 'Найди популярное смешное видео или тренд TikTok 2024-2025. Опиши: что происходит, почему смешно.'
-      };
-      
-      const surpriseRes = await fetch(BASE_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + DEEPSEEK_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: TEXT_MODEL,
-          messages: [
-            { 
-              role: 'system', 
-              content: 'Ты Маша, 17 лет. Ты ищешь что-то интересное, чтобы поделиться с Эдуардом. Будь краткой и живой.'
-            },
-            { 
-              role: 'user', 
-              content: `Найди что-то популярное и классное (${surpriseType}). ${searchPrompts[surpriseType] || searchPrompts.meme}`
-            }
-          ],
-          max_tokens: 200,
-          temperature: 0.8
-        })
-      });
-
-      if (!surpriseRes.ok) {
-        console.error('Surprise error:', surpriseRes.status, await surpriseRes.text());
-        return res.status(500).json({ error: 'Failed to get surprise' });
-      }
-
-      const surpriseData = await surpriseRes.json();
-      const content = surpriseData.choices?.[0]?.message?.content || 'Ничего не нашла';
-      
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Content-Type', 'application/json');
-      return res.status(200).json({ surprise: content, type: surpriseType });
-    }
 
     // === ЭНДПОИНТ: ИНИЦИАТИВА ===
     if (checkInitiative) {
       const { state } = parsedBody;
       const now = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
-      const sinceLastUser = state?.lastUserMessageTime 
-        ? Math.round((Date.now() - state.lastUserMessageTime) / (1000 * 60)) 
+      const sinceLastUser = state?.lastUserMessageTime
+        ? Math.round((Date.now() - state.lastUserMessageTime) / (1000 * 60))
         : 999;
-      
+
       const lastMsg = state?.messages?.slice(-1)[0];
       const lastMsgTopic = lastMsg?.content?.slice(0, 100) || 'ничего';
-      
+
       const initiativePrompt = `Ты Маша, 17 лет, Красноярск. Встречаешься с Эдуардом 2 года.
 Сейчас: ${now}
 Твоё состояние: ${state?.currentState || 'calm'}
@@ -127,7 +78,7 @@ export default async function handler(req, res) {
 
       const initiativeData = await initiativeRes.json();
       const response = initiativeData.choices?.[0]?.message?.content || 'НЕ ХОЧУ: не знаю';
-      
+
       let result;
       if (response.startsWith('ХОЧУ:')) {
         result = { initiative: true, text: response.replace('ХОЧУ:', '').trim() };
@@ -136,7 +87,7 @@ export default async function handler(req, res) {
       } else {
         result = { initiative: false, reason: response };
       }
-      
+
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', 'application/json');
       return res.status(200).json(result);
@@ -147,7 +98,7 @@ export default async function handler(req, res) {
     if (text || image) {
       const recentHistory = history?.slice(-5) || [];
       const historyText = recentHistory.map(m => `${m.role === 'user' ? 'Он' : 'Ты'}: ${m.content}`).join('\n');
-      
+
       const thoughtPrompt = `Ты Маша. Вот контекст:
 ${historyText}
 
@@ -183,7 +134,7 @@ ${historyText}
 
     // === ШАГ 2: ОСНОВНОЙ ОТВЕТ ===
     let userContent;
-    
+
     if (image) {
       userContent = [
         { type: "text", text: text || "Отреагируй на это фото." },
@@ -193,10 +144,10 @@ ${historyText}
       userContent = text || "";
     }
 
-        // Формируем messages с историей (чиним старую роль 'bot')
+    // Формируем messages с историей (чиним старую роль 'bot')
     const messages = [
-      { 
-        role: "system", 
+      {
+        role: "system",
         content: `${systemPrompt}\n\nТы сейчас думаешь: ${thought || 'ничего особого'}`
       },
       ...((history || []).slice(-15).map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content }))),
@@ -225,7 +176,14 @@ ${historyText}
     }
 
     const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || "Что-то пошло не так...";
+
+    // ЗАЩИТА: если DeepSeek вернул пустышку — не молчим, а показываем причину
+    if (!data.choices || !data.choices.length) {
+      console.error('DeepSeek empty response:', JSON.stringify(data).slice(0, 500));
+      throw new Error('DeepSeek вернул пустой ответ: ' + JSON.stringify(data).slice(0, 200));
+    }
+
+    const reply = data.choices[0].message?.content || "Что-то пошло не так...";
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
