@@ -1219,7 +1219,7 @@ async function callAI(text) {
       text: text, 
       image: selectedImageBase64, 
       systemPrompt: sys,
-      history: state.messages.slice(-15),
+      history: state.messages.slice(-16, -1).map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content })),
       lastThought: state.lastThought,
       events: state.events.slice(-3),
       userStatus: state.userStatus
@@ -1229,6 +1229,7 @@ async function callAI(text) {
   if (!res.ok) throw new Error('API ' + res.status + ': ' + (await res.text()).slice(0, 200));
   const data = await res.json();
   return data;
+}
 }
 
 function saveState() {
@@ -1289,6 +1290,13 @@ function removePreview() {
   document.getElementById('file-input').value = '';
   document.getElementById('image-preview').style.display = 'none';
 }
+
+// Миграция старых сообщений: DeepSeek не знает роль 'bot'
+state.messages = state.messages.map(m => {
+  if (m.role === 'bot') m.role = 'assistant';
+  return m;
+});
+saveState();
 
 init();
 </script>
