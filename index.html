@@ -104,7 +104,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="needs" id="needs"></div>
   </div>
   <button class="header-btn" onclick="openPlaylist()">🎵</button>
-  <button class="header-btn" onclick="openGames()"></button>
+  <button class="header-btn" onclick="openGames()">🎮</button>
   <button class="header-btn" onclick="openSettings()">⚙️</button>
 </div>
 
@@ -182,11 +182,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 <div class="modal" id="games-modal">
   <div class="modal-content">
     <button class="close-btn" onclick="closeGames()">×</button>
-    <h3> Мини-игры</h3>
+    <h3>🎮 Мини-игры</h3>
     <div id="games-menu" class="game-menu">
       <div class="game-card" onclick="startRPS()"><div class="icon">✊</div><div class="title">Камень-Ножницы-Бумага</div></div>
-      <div class="game-card" onclick="startQuiz()"><div class="icon"></div><div class="title">Насколько ты меня знаешь?</div></div>
-      <div class="game-card" onclick="startGuessNumber()"><div class="icon"></div><div class="title">Угадай число</div></div>
+      <div class="game-card" onclick="startQuiz()"><div class="icon">💗</div><div class="title">Насколько ты меня знаешь?</div></div>
+      <div class="game-card" onclick="startGuessNumber()"><div class="icon">🔢</div><div class="title">Угадай число</div></div>
       <div class="game-card" onclick="startTruthDare()"><div class="icon">🎲</div><div class="title">Правда или действие</div></div>
     </div>
     <div id="game-area"></div>
@@ -235,7 +235,7 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 
 ЖЁСТКИЕ ПРАВИЛА (никогда не нарушай):
 1. НИКАКИХ эмодзи. Вообще. Никогда. Ни одного.
-2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD,  и т.д.
+2. НИКАКИХ скобочек: ), :), :(, :3, xd, xD и т.д.
 3. НИКАКИХ звёздочек *обнимаю*
 4. Максимум 2-3 предложения. Коротко, но живо.
 5. Не объясняй. Не рассказывай. Не перечисляй.
@@ -277,11 +277,11 @@ const DEFAULT_PROMPT = `Ты Маша. Живая девушка 17 лет из 
 - Мем про учёбу: "жиза, это я на парах", "прям про сессию"
 
 ПЛОХИЕ ОТВЕТЫ (НИКОГДА так не пиши):
-❌ "О, ну например скейтборд собака, я с неё угараю каждый раз 😂"
+❌ "О, ну например скейтборд собака, я с неё угараю каждый раз"
 ❌ "Ой, я сейчас залипла на Paint The Town Red у Doja Cat"
 ❌ "Ну да, sixseven. Ладно, умный ты мой. А зачем так сложно-то, а?"
 ❌ "дед в шапке" (когда видишь мем — ищи смысл, не описывай буквально)
- "чё выбрать то" (будь более вовлечённой)
+❌ "чё выбрать то" (будь более вовлечённой)
 ❌ "чё за сериал" (поддерживай разговор)
 
 ХОРОШИЕ ОТВЕТЫ (пиши так):
@@ -324,7 +324,6 @@ let state = {
   trends: JSON.parse(localStorage.getItem('masha_trends') || JSON.stringify(TRENDS_2024_2025)),
   needs: { hunger: 20, energy: 20, social: 20, affection: 20 },
   lastUpdate: Date.now(),
-  // НОВОЕ: внутренний монолог и жизнь
   lastThought: localStorage.getItem('masha_lastThought') || '',
   events: JSON.parse(localStorage.getItem('masha_events') || '[]'),
   lastUserMessageTime: parseInt(localStorage.getItem('masha_lastUserMessageTime') || '0'),
@@ -332,7 +331,7 @@ let state = {
   userStatus: localStorage.getItem('masha_userStatus') || 'awake',
   lastSurpriseTime: parseInt(localStorage.getItem('masha_lastSurpriseTime') || '0')
 };
-  function getRelationshipLevel() {
+function getRelationshipLevel() {
   const r = state.relationship;
   if (r >= 80) return { text: 'Очень близкие', tone: 'нежная но коротко' };
   if (r >= 60) return { text: 'Тёплые', tone: 'тёплая' };
@@ -911,7 +910,7 @@ function playRPS(playerChoice) {
 }
 
 const QUIZ_QUESTIONS = [
-  { q: 'Какой у меня ник был в Telegram?', options: ['', '🌸', '🍀', '🌺'], correct: 0 },
+  { q: 'Какой у меня ник был в Telegram?', options: ['🌸', '🍀', ''], correct: 0 },
   { q: 'Как зовут моего младшего брата?', options: ['Паша', 'Ваня', 'Дима', 'Саша'], correct: 1 },
   { q: 'Какой сериал я смотрю?', options: ['Слово Пацана', 'Ландыши', 'Корабль', 'Школа'], correct: 1 },
   { q: 'Что я люблю кушать?', options: ['Пиццу', 'Сырники', 'Суши', 'Бургеры'], correct: 1 },
@@ -1130,7 +1129,7 @@ function renderMessages() {
     if (m.role === 'assistant') {
       const voiceBtn = document.createElement('button');
       voiceBtn.className = 'voice-btn';
-      voiceBtn.innerHTML = '';
+      voiceBtn.innerHTML = '🔊';
       voiceBtn.onclick = () => toggleSpeech(voiceBtn, m.content);
       wrapper.appendChild(voiceBtn);
     }
@@ -1229,7 +1228,6 @@ async function callAI(text) {
   if (!res.ok) throw new Error('API ' + res.status + ': ' + (await res.text()).slice(0, 200));
   const data = await res.json();
   return data;
-}
 }
 
 function saveState() {
