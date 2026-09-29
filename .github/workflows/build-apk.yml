@@ -27,10 +27,10 @@ jobs:
     - name: Setup Android SDK
       uses: malinskiy/action-android/install-sdk@release/0.1.4
 
-    - name: Install Capacitor
+    - name: Install Capacitor 5
       run: |
         npm init -y
-        npm install @capacitor/core @capacitor/cli @capacitor/android
+        npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5
 
     - name: Create www folder and copy files
       run: |
@@ -58,22 +58,12 @@ jobs:
     - name: Add Android platform
       run: npx cap add android
 
-    - name: Fix Gradle, AGP, Java Version and API URL
+    - name: Force Java 17 and Fix API URL
       run: |
-        # 1. Обновляем Gradle wrapper до 8.5
-        sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.5-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
+        # 1. ПРИНУДИТЕЛЬНО меняем любую версию Java (21 и т.д.) на 17 в настройках приложения
+        sed -i 's/JavaVersion\.VERSION_[0-9]\{1,2\}/JavaVersion.VERSION_17/g' android/app/build.gradle
         
-        # 2. Обновляем Android Gradle Plugin до 8.3.0
-        sed -i "s/gradle:[0-9]\+\.[0-9]\+\.[0-9]\+'/gradle:8.3.0'/" android/build.gradle
-        
-        # 3. ПРИНУДИТЕЛЬНО меняем Java 21 на Java 17 в настройках приложения (решает ошибку "invalid source release: 21")
-        sed -i 's/JavaVersion.VERSION_21/JavaVersion.VERSION_17/g' android/app/build.gradle
-        sed -i "s/jvmTarget = '21'/jvmTarget = '17'/g" android/app/build.gradle
-        
-        # 4. Добавляем флаг подавления предупреждений SDK
-        echo "android.suppressUnsupportedCompileSdk=34" >> android/gradle.properties
-        
-        # 5. Меняем относительный путь API на абсолютный (Vercel)
+        # 2. Меняем путь API на абсолютный (Vercel)
         sed -i "s|const API_URL = '/api/relay';|const API_URL = 'https://masha-mf6o.vercel.app/api/relay';|g" www/index.html
 
     - name: Sync assets
@@ -83,8 +73,7 @@ jobs:
       run: |
         cd android
         chmod +x ./gradlew
-        ./gradlew clean
-        ./gradlew assembleDebug --no-daemon --no-parallel
+        ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
