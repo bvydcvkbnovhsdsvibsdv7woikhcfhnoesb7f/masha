@@ -28,11 +28,18 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y android-sdk
+        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
     - name: Set Android environment
       run: |
         echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+
+    - name: Clean Gradle cache
+      run: |
+        rm -rf $HOME/.gradle/caches
+        rm -rf $HOME/.gradle/wrapper
 
     - name: Install Capacitor
       run: |
@@ -73,7 +80,8 @@ jobs:
       run: |
         cd android
         chmod +x ./gradlew
-        ./gradlew assembleRelease --no-daemon
+        ./gradlew clean
+        ./gradlew assembleRelease --no-daemon --no-parallel
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
