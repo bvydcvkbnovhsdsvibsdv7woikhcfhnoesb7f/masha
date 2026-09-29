@@ -33,13 +33,22 @@ jobs:
       run: |
         echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
-        echo "$ANDROID_HOME/tools/bin" >> $GITHUB_PATH
-        echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
 
     - name: Install Capacitor
       run: |
         npm init -y
         npm install @capacitor/core @capacitor/cli @capacitor/android
+
+    - name: Create www folder and copy files
+      run: |
+        mkdir -p www
+        cp index.html www/
+        cp manifest.json www/
+        cp sw.js www/
+        cp icon-192.png www/ 2>/dev/null || true
+        cp icon-512.png www/ 2>/dev/null || true
+        cp -r avatars www/ 2>/dev/null || true
+        ls -la www/
 
     - name: Create Capacitor config
       run: |
@@ -47,7 +56,7 @@ jobs:
         {
           "appId": "com.masha.app",
           "appName": "Маша",
-          "webDir": ".",
+          "webDir": "www",
           "server": {
             "androidScheme": "https"
           }
