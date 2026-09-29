@@ -69,15 +69,11 @@ jobs:
     - name: Sync assets
       run: npx cap sync android
 
-    - name: Fix Gradle permissions
-      run: |
-        sudo chown -R runner:runner $HOME/.gradle
-        rm -rf $HOME/.gradle/caches/jars-9
-
     - name: Build APK
       run: |
         cd android
         chmod +x ./gradlew
+        mkdir -p $HOME/.gradle
         ./gradlew assembleRelease --no-daemon --stacktrace
 
     - name: Upload APK
