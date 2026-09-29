@@ -18,24 +18,38 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Install Capacitor
-      run: |
-        npm init -y
-        npm install @capacitor/core @capacitor/cli @capacitor/android
-
-    - name: Initialize Capacitor
-      run: |
-        npx cap init "Маша" "com.masha.app" --web-dir="."
-        npx cap add android
-
-    - name: Sync web assets
-      run: npx cap sync android
-
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Capacitor
+      run: |
+        npm init -y
+        npm install @capacitor/core @capacitor/cli @capacitor/android
+
+    - name: Create Capacitor config
+      run: |
+        cat > capacitor.config.json << 'EOF'
+        {
+          "appId": "com.masha.app",
+          "appName": "Маша",
+          "webDir": ".",
+          "server": {
+            "androidScheme": "https"
+          }
+        }
+        EOF
+
+    - name: Add Android platform
+      run: npx cap add android
+
+    - name: Sync assets
+      run: npx cap sync android
 
     - name: Build APK
       run: |
