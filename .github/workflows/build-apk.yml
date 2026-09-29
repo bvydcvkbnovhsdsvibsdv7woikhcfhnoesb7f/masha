@@ -18,11 +18,12 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Setup Java 21
+    # ИСПОЛЬЗУЕМ JAVA 17 (самая стабильная для Android + Capacitor)
+    - name: Setup Java 17
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '21'
+        java-version: '17'
 
     - name: Setup Android SDK
       uses: malinskiy/action-android/install-sdk@release/0.1.4
@@ -63,8 +64,8 @@ jobs:
         # 1. Обновляем Gradle wrapper до 8.5
         sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.5-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
         
-        # 2. Обновляем Android Gradle Plugin до 8.2.0 (ИСПРАВЛЕНО: сохраняем кавычки)
-        sed -i "s/gradle:[0-9]\+\.[0-9]\+\.[0-9]\+'/gradle:8.2.0'/" android/build.gradle
+        # 2. Обновляем Android Gradle Plugin до 8.3.0 (максимально стабильная версия)
+        sed -i "s/gradle:[0-9]\+\.[0-9]\+\.[0-9]\+'/gradle:8.3.0'/" android/build.gradle
         
         # 3. Добавляем флаг подавления предупреждений SDK
         echo "android.suppressUnsupportedCompileSdk=34" >> android/gradle.properties
