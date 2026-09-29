@@ -36,11 +36,6 @@ jobs:
         echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
         echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
-    - name: Clean Gradle cache
-      run: |
-        rm -rf $HOME/.gradle/caches
-        rm -rf $HOME/.gradle/wrapper
-
     - name: Install Capacitor
       run: |
         npm init -y
@@ -55,7 +50,6 @@ jobs:
         cp icon-192.png www/ 2>/dev/null || true
         cp icon-512.png www/ 2>/dev/null || true
         cp -r avatars www/ 2>/dev/null || true
-        ls -la www/
 
     - name: Create Capacitor config
       run: |
@@ -73,18 +67,32 @@ jobs:
     - name: Add Android platform
       run: npx cap add android
 
+    - name: Fix Gradle, AGP and API URL
+      run: |
+        # 1. Обновляем Gradle wrapper до 8.5
+        sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.5-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
+        
+        # 2. Обновляем Android Gradle Plugin до 8.2.0
+        sed -i "s/com.android.tools.build:gradle:.*/com.android.tools.build:gradle:8.2.0/" android/build.gradle
+        
+        # 3. Добавляем флаг подавления предупреждений SDK
+        echo "android.suppressUnsupportedCompileSdk=34" >> android/gradle.properties
+        
+        # 4. Меняем относительный путь API на абсолютный (Vercel)
+        sed -i "s|const API_URL = '/api/relay';|const API_URL = 'https://masha-mf6o.vercel.app/api/relay';|g" www/index.html
+
     - name: Sync assets
       run: npx cap sync android
 
-    - name: Build APK
+    - name: Build Debug APK
       run: |
         cd android
         chmod +x ./gradlew
         ./gradlew clean
-        ./gradlew assembleRelease --no-daemon --no-parallel
+        ./gradlew assembleDebug --no-daemon --no-parallel
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: masha-apk
-        path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+        name: masha-apk-debug
+        path: android/app/build/outputs/apk/debug/app-debug.apk
