@@ -98,6 +98,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .image-preview { position: relative; max-width: 200px; margin: 5px 10px; display: none; }
 .image-preview img { width: 100%; border-radius: 8px; border: 1px solid #444; }
 .remove-preview { position: absolute; top: -8px; right: -8px; background: #ff4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-weight: bold; }
+.offline-banner { background: #7a2a2a; color: #ffd7d7; font-size: 11px; padding: 6px 12px; text-align: center; }
+.memory-badge { font-size: 10px; color: #5b9bd5; padding: 2px 8px; }
+.toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: #242f3d; color: #fff; border-left: 3px solid #d93025; padding: 10px 14px; border-radius: 8px; font-size: 12px; max-width: 88%; z-index: 2000; box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: fadeIn 0.2s; }
+.toast.ok { border-left-color: #2a7a4a; }
+.msg-error { background: #3a2028 !important; color: #ffd7d7; }
 </style>
 </head>
 <body>
@@ -113,6 +118,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <button class="header-btn" onclick="openGames()">🎮</button>
   <button class="header-btn" onclick="openSettings()">⚙️</button>
 </div>
+
+<div class="offline-banner" id="offline-banner" style="display:none;">нет интернета — игры, календарь и память работают, сообщение уйдёт, когда связь вернётся</div>
 
 <div class="calendar" id="calendar"></div>
 
@@ -179,6 +186,68 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <span>Автоматически читать сообщения</span>
       </label>
     </div>
+    <!-- ================= ПАМЯТЬ / АРХИВ 265К ================= -->
+    <div class="voice-settings">
+      <label>🧠 Память (архив переписки)</label>
+      <div id="memory-stats" style="font-size:11px;color:#8a9ba8;margin-bottom:8px;">проверяю архив…</div>
+      <input type="file" id="archive-input" accept=".json,.gz,.bin,application/json" multiple style="display:none" onchange="handleArchiveFiles(event)">
+      <button onclick="document.getElementById('archive-input').click()">📥 Импортировать архив (JSON / .gz)</button>
+      <button class="secondary" onclick="rebuildArchiveIndex()">♻️ Пересобрать индекс</button>
+      <button class="secondary" onclick="clearArchive()">🗑 Очистить архив</button>
+      <div id="archive-progress" style="display:none;font-size:11px;color:#5b9bd5;margin-top:8px;"></div>
+      <p style="font-size:10px;color:#8a9ba8;margin-top:8px;">
+        Сюда можно кидать те самые два JSON-файла (даже по 100+ МБ) или собранный
+        <b>masha-archive.json.gz</b> из tools/build-archive.html. Импорт идёт один раз,
+        повторная загрузка того же файла ничего не дублирует.
+      </p>
+    </div>
+
+    <!-- ================= СЕРВЕР (РЕЛЕЙ) ================= -->
+    <div class="voice-settings">
+      <label>🛰️ Серверы Маши (по одному адресу в строке)</label>
+      <textarea id="endpoints-input" style="min-height:90px;width:100%;background:#17212b;border:1px solid #2b5278;color:#fff;padding:8px;border-radius:6px;font-size:11px;font-family:monospace;"></textarea>
+      <button onclick="saveEndpoints()">Сохранить серверы</button>
+      <button class="secondary" onclick="checkEndpoints()">🔍 Проверить</button>
+      <button class="secondary" onclick="MashaAPI.resetCooldowns(); checkEndpoints();">♻️ Сбросить блокировку</button>
+      <div id="endpoints-result" style="font-size:11px;color:#8a9ba8;margin-top:8px;"></div>
+      <p style="font-size:10px;color:#8a9ba8;margin-top:6px;">
+        Если основной сервер лёг — Маша сама переключится на следующий из списка.
+        Сюда можно вписать свой Cloudflare Worker (папка <b>worker/</b> в проекте).
+      </p>
+    </div>
+
+    <!-- ================= ИНИЦИАТИВА ================= -->
+    <div class="voice-settings">
+      <label>💌 Инициатива (пишет первой)</label>
+      <div id="initiative-status" style="font-size:11px;color:#8a9ba8;margin-bottom:8px;">…</div>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="initiative-enabled">
+        <span>Разрешить Маше писать первой</span>
+      </label>
+      <button class="secondary" onclick="forceInitiative()">✍️ Пусть попробует написать сейчас</button>
+    </div>
+
+    <!-- ================= УВЕДОМЛЕНИЯ / БЭКАП ================= -->
+    <div class="voice-settings">
+      <label>🔔 Уведомления и бэкап</label>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="notify-enabled">
+        <span>Показывать уведомления, когда приложение свёрнуто</span>
+      </label>
+      <button onclick="downloadBackup()">💾 Скачать бэкап</button>
+      <input type="file" id="backup-input" accept=".json" style="display:none" onchange="handleBackupFile(event)">
+      <button class="secondary" onclick="document.getElementById('backup-input').click()">📤 Загрузить бэкап</button>
+    </div>
+
+    <div class="modal" id="who-modal">
+      <div class="modal-content">
+        <h3>Кто из них — Маша?</h3>
+        <p id="who-text" style="font-size:12px;color:#8a9ba8;margin-bottom:12px;">В архиве нашлись такие участники. Нажми на ту, чьи сообщения — Маша (остальные будут считаться тобой).</p>
+        <div id="who-options"></div>
+        <button class="secondary" onclick="answerWhoIsShe(null)">Отмена</button>
+      </div>
+    </div>
+
     <textarea id="prompt"></textarea>
     <button onclick="saveSettings()">Сохранить</button>
     <button class="secondary" onclick="closeSettings()">Отмена</button>
@@ -214,8 +283,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 </div>
 
+<!-- Модули Маши: поиск по архиву, память (IndexedDB), импорт, сеть, инициатива.
+     Обычные скрипты, без сборщика — работают и в APK, и в браузере. -->
+<script src="js/config.js"></script>
+<script src="js/search-engine.js"></script>
+<script src="js/memory-db.js"></script>
+<script src="js/import-manager.js"></script>
+<script src="js/api-client.js"></script>
+<script src="js/initiative.js"></script>
 <script>
-const API_URL = '/api/relay';
+/* ==================================================================
+   АДРЕСА РЕЛЕЯ (API)
+   Перебираются по порядку: первый рабочий и используется.
+   - в веб-версии автоматически добавляется свой /api/relay;
+   - в APK работает адрес из js/config.js (его пишет сборка APK);
+   - если добавить в Настройках второй адрес (например, свой
+     Cloudflare Worker) — при падении основного Маша продолжит отвечать.
+   ================================================================== */
+window.MASHA_DEFAULT_ENDPOINTS = window.MASHA_DEFAULT_ENDPOINTS || [
+  'https://masha-mf6o.vercel.app/api/relay'
+];
+const API_URL = window.MASHA_DEFAULT_ENDPOINTS[0]; // совместимость со старым кодом
 
 const EVENTS = {
   'Его ДР (1 октября)': { month: 10, day: 1 },
@@ -437,7 +525,12 @@ let state = {
   lastUserMessageTime: parseInt(localStorage.getItem('masha_lastUserMessageTime') || '0'),
   lastMashaMessageTime: parseInt(localStorage.getItem('masha_lastMashaMessageTime') || '0'),
   userStatus: localStorage.getItem('masha_userStatus') || 'awake',
-  lastSurpriseTime: parseInt(localStorage.getItem('masha_lastSurpriseTime') || '0')
+  lastSurpriseTime: parseInt(localStorage.getItem('masha_lastSurpriseTime') || '0'),
+  initiativeEnabled: localStorage.getItem('masha_initiativeEnabled') !== '0',
+  notifyEnabled: localStorage.getItem('masha_notifyEnabled') === '1',
+  pending: JSON.parse(localStorage.getItem('masha_pending') || '[]'),
+  herName: localStorage.getItem('masha_herName') || '',
+  archiveReady: false
 };
 function getRelationshipLevel() {
   const r = state.relationship;
@@ -769,6 +862,7 @@ function initVoice() {
 }
 
 function loadVoices() {
+  if (!('speechSynthesis' in window)) return;   // WebView без TTS не должен ронять настройки
   const voices = speechSynthesis.getVoices();
   const voiceSelect = document.getElementById('voice-select');
   if (!voiceSelect) return;
@@ -866,52 +960,79 @@ function updateActivityStatus() {
 
 const firstMessages = ['привет, как ты', 'ты покушал', 'чё делаешь', 'скучаю', 'хочу сырники', 'помнишь как мы познакомились', 'обними меня'];
 
-async function checkInitiative() {
-  if (state.userStatus === 'sleeping') return;
+/* ==================================================================
+   ИНИЦИАТИВА («пишет первой»)
+   Логика вынесена в js/initiative.js: расписание по Красноярску,
+   уважение к режиму сна, поводы (утро/вечер/праздник), кап на день,
+   откат если он не отвечает, уведомления.
+   ================================================================== */
+let initiative = null;
 
-  const now = Date.now();
-  const sinceLastUser = now - state.lastUserMessageTime;
-  const sinceLastMasha = now - state.lastMashaMessageTime;
-  
-  // Пишет только если пользователь не писал больше 30 минут И Маша не писала больше 10 минут
-  if (sinceLastUser < 30 * 60 * 1000) return;
-  if (sinceLastMasha < 10 * 60 * 1000) return;
-
-  try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        checkInitiative: true, 
-        state: {
-          messages: state.messages.slice(-5),
-          currentState: state.currentState,
-          events: state.events,
-          lastThought: state.lastThought,
-          lastUserMessageTime: state.lastUserMessageTime,
-          userStatus: state.userStatus
-        }
-      })
-    });
-    
-    const data = await res.json();
-
-    if (data.initiative && data.text) {
-      state.messages.push({ role: 'assistant', content: data.text });
+function initInitiative() {
+  if (typeof MashaInitiative === 'undefined') return null;
+  initiative = MashaInitiative.create({
+    api: window.MashaAPI,
+    storage: localStorage,
+    document: document,
+    getState: () => ({
+      userStatus: state.userStatus,
+      lastUserMessageTime: state.lastUserMessageTime,
+      lastMashaMessageTime: state.lastMashaMessageTime,
+      currentState: state.currentState,
+      relationship: state.relationship,
+      lastThought: state.lastThought,
+      messages: state.messages,
+      events: Object.keys(EVENTS).map(name => ({
+        name: name, month: EVENTS[name].month, day: EVENTS[name].day
+      })).concat(state.events || [])
+    }),
+    onMessage: (text, meta) => {
+      const last = state.messages[state.messages.length - 1];
+      if (last && last.role === 'assistant' && last.content === text) return;
+      state.messages.push({ role: 'assistant', content: text, initiative: true });
       state.lastMashaMessageTime = Date.now();
       renderMessages();
       saveState();
-      if (document.getElementById('auto-speak')?.checked) speak(data.text);
-      if (document.hidden && Notification.permission === 'granted') {
-        new Notification('Маша', { body: data.text });
+      saveLiveMessage({ role: 'assistant', content: text, ts: Date.now() });
+      if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(text);
+      if (state.notifyEnabled && document.hidden) {
+        try { new Notification('Маша', { body: text, tag: 'masha-initiative' }); } catch (e) {}
       }
-    } else if (data.reason) {
-      state.lastThought = data.reason.slice(0, 120);
+      updateInitiativeStatus('написала первой (' + (meta && meta.trigger || '') + ')');
+    },
+    onThought: (reason) => {
+      state.lastThought = String(reason || '').slice(0, 120);
       saveState();
-    }
-  } catch (e) {
-    console.error('Initiative error:', e);
+      updateInitiativeStatus('решила промолчать: ' + state.lastThought);
+    },
+    onSkip: (reason) => updateInitiativeStatus('ждёт: ' + reason)
+  });
+  if (state.initiativeEnabled) initiative.start();
+  updateInitiativeStatus('запущена');
+  return initiative;
+}
+
+async function checkInitiative() {
+  if (!state.initiativeEnabled) return { sent: false, reason: 'выключено' };
+  if (!initiative) return { sent: false, reason: 'не инициализирована' };
+  return initiative.tick(false);
+}
+
+async function forceInitiative() {
+  if (!initiative) {
+    toast('Инициатива ещё не готова', 'error');
+    return;
   }
+  const res = await initiative.tick(true);
+  updateInitiativeStatus(res.sent ? 'написала: ' + res.text : 'не стала: ' + res.reason);
+}
+
+function updateInitiativeStatus(text) {
+  const el = document.getElementById('initiative-status');
+  if (!el) return;
+  const st = initiative ? initiative.status() : null;
+  const when = st ? ` • сегодня ${st.todayCount}/${st.dailyMax}` : '';
+  el.textContent = text + when;
 }
 
 function getDaysUntilEvent(month, day) {
@@ -1172,19 +1293,62 @@ function init() {
   updateRelationshipDisplay();
   renderTrends();
   initVoice();
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  renderEndpoints();
+  showOffline(typeof navigator !== 'undefined' && navigator.onLine === false);
+  wireSettingsToggles();
+
+  window.addEventListener('online', () => { showOffline(false); toast('Связь вернулась', 'ok'); flushPending(); });
+  window.addEventListener('offline', () => showOffline(true));
+
   setInterval(updateState, 60000);
   setInterval(tickNeeds, 300000);
   setInterval(updateActivityStatus, 180000);
-  setInterval(checkInitiative, 5 * 60 * 1000);
   setInterval(updateCalendar, 3600000);
   setInterval(() => {
-    if (state.messages.length > 60) {
-      state.messages = state.messages.slice(-60);
+    if (state.messages.length > 80) {
+      state.messages = state.messages.slice(-80);
       saveState();
     }
   }, 60000);
-  setTimeout(checkInitiative, 3000);
+
+  // Память открываем до инициативы: она использует контекст архива.
+  initMemory().then(() => {
+    initInitiative();
+    setTimeout(() => flushPending(), 5000);
+  }, (e) => {
+    console.error('initMemory rejected', e);
+    initInitiative();
+  });
+
+  if ('Notification' in window && Notification.permission === 'default' && state.notifyEnabled) {
+    Notification.requestPermission();
+  }
+}
+
+function wireSettingsToggles() {
+  const initEl = document.getElementById('initiative-enabled');
+  if (initEl) {
+    initEl.checked = !!state.initiativeEnabled;
+    initEl.addEventListener('change', () => {
+      state.initiativeEnabled = initEl.checked;
+      localStorage.setItem('masha_initiativeEnabled', initEl.checked ? '1' : '0');
+      if (initiative) {
+        if (initEl.checked) { initiative.start(); updateInitiativeStatus('включена'); }
+        else { initiative.stop(); updateInitiativeStatus('выключена'); }
+      }
+    });
+  }
+  const notifyEl = document.getElementById('notify-enabled');
+  if (notifyEl) {
+    notifyEl.checked = !!state.notifyEnabled;
+    notifyEl.addEventListener('change', async () => {
+      state.notifyEnabled = notifyEl.checked;
+      localStorage.setItem('masha_notifyEnabled', notifyEl.checked ? '1' : '0');
+      if (notifyEl.checked && 'Notification' in window && Notification.permission === 'default') {
+        try { await Notification.requestPermission(); } catch (e) {}
+      }
+    });
+  }
 }
 
 function updateState() {
@@ -1258,11 +1422,97 @@ function renderMessages() {
   chat.scrollTop = chat.scrollHeight;
 }
 
+/* ==================================================================
+   ОТПРАВКА СООБЩЕНИЯ
+   Что исправлено по сравнению с прошлой версией:
+   1) дубликаты — теперь невозможны (isSending + блокировка кнопки +
+      защита от одинакового текста подряд);
+   2) вместо «Unexpected token '<' ... is not valid JSON» — понятный
+      русский текст ошибки, а не белое окно;
+   3) нет интернета — сообщение не теряется, уходит в очередь;
+   4) в промпт подставляются реальные фрагменты архива (поиск по ключевым
+      словам), а не только последние сообщения.
+   ================================================================== */
+let isSending = false;
+
+function setSending(on) {
+  isSending = on;
+  const btn = document.querySelector('.send-btn');
+  if (btn) {
+    btn.disabled = on;
+    btn.style.opacity = on ? '0.5' : '1';
+  }
+  const input = document.getElementById('input');
+  if (input) input.disabled = on;
+}
+
+function toast(text, kind) {
+  try {
+    const el = document.createElement('div');
+    el.className = 'toast' + (kind === 'ok' ? ' ok' : '');
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), kind === 'ok' ? 2500 : 7000);
+  } catch (e) { alert(text); }
+}
+
+function showOffline(on) {
+  const el = document.getElementById('offline-banner');
+  if (el) el.style.display = on ? 'block' : 'none';
+}
+
+/* Сохранение живых сообщений в архив (IndexedDB), чтобы память не терялась
+   при переполнении localStorage. */
+async function saveLiveMessage(msg) {
+  try {
+    if (typeof MashaMemory !== 'undefined' && MashaMemory.db) {
+      await MashaMemory.db.append({ role: msg.role, content: msg.content, ts: msg.ts || Date.now(), src: 'live' });
+      state.archiveReady = true;
+    }
+  } catch (e) {
+    console.warn('archive append failed', e);
+  }
+}
+
+/* Поиск в архиве 265к: возвращает готовый блок контекста для промпта.
+   Не зависим от флага archiveReady — если архив пуст, indexed-поиск просто
+   ничего не вернёт (дёшево), зато импорт «на ходу» начинает работать сразу. */
+async function buildArchiveContext(text) {
+  if (!text) return '';
+  if (typeof MashaMemory === 'undefined' || typeof MashaSearch === 'undefined') return '';
+  if (!MashaMemory.db) return '';
+  try {
+    const res = await MashaMemory.db.recall(text, { episodeLimit: 6, radius: 2 });
+    if (!res || !res.episodes || !res.episodes.length) return '';
+    const block = MashaSearch.buildContextBlock(res.episodes, { maxChars: 3000 });
+    if (!block) return '';
+    state.archiveReady = true;
+    state.lastMemoryHits = res.episodes.length;
+    return block;
+  } catch (e) {
+    console.warn('archive recall failed', e);
+    return '';
+  }
+}
+
 async function sendMessage() {
+  if (isSending) return;
+
   const input = document.getElementById('input');
   const text = input.value.trim();
-  
   if (!text && !selectedImageBase64) return;
+
+  // защита от «Привет» три раза подряд (в т.ч. от двойного Enter)
+  if (!selectedImageBase64) {
+    const lastUser = [...state.messages].reverse().find(m => m.role === 'user');
+    if (lastUser && lastUser.content === text && (Date.now() - (lastUser.ts || 0)) < 5000) {
+      input.value = '';
+      return;
+    }
+  }
+
+  setSending(true);
+  const image = selectedImageBase64;
 
   state.lastUserMessageTime = Date.now();
   const lower = text.toLowerCase();
@@ -1272,85 +1522,181 @@ async function sendMessage() {
     state.userStatus = 'awake';
   }
 
-  state.messages.push({ 
-    role: 'user',
-    content: text,
-    image: selectedImageBase64 || null
-  });
+  state.messages.push({ role: 'user', content: text, image: image || null, ts: Date.now() });
   renderMessages();
   updateFacts(text);
   updateRelationship(text, true);
-  
+  saveState();
+  saveLiveMessage({ role: 'user', content: text, ts: Date.now() });
+
   const typing = document.createElement('div');
   typing.className = 'typing';
-  typing.textContent = selectedImageBase64 ? 'Маша смотрит фото...' : 'печатает...';
+  typing.textContent = state.archiveReady ? 'Маша вспоминает...' : 'печатает...';
   document.getElementById('chat').appendChild(typing);
   document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight;
-  
+
   input.value = '';
   removePreview();
-  
+
   try {
-    const data = await callAI(text);
+    const memoryContext = await buildArchiveContext(text);
+    if (memoryContext) typing.textContent = 'печатает...';
+    const data = await callAI(text, { image: image, memoryContext: memoryContext });
     typing.remove();
-    
+
     state.lastThought = (data.thought || '').slice(0, 120);
     state.lastMashaMessageTime = Date.now();
-    
-    state.messages.push({ role: 'assistant', content: data.reply });
+
+    const reply = String(data.reply || '').trim();
+    const prevAssistant = [...state.messages].reverse().find(m => m.role === 'assistant');
+    if (reply && !(prevAssistant && prevAssistant.content === reply)) {
+      state.messages.push({ role: 'assistant', content: reply, ts: Date.now() });
+      saveLiveMessage({ role: 'assistant', content: reply, ts: Date.now() });
+    }
     renderMessages();
-    const emotion = analyzeEmotion(data.reply);
+    const emotion = analyzeEmotion(reply);
     if (emotion) setTimeout(() => setSprite(emotion), 500);
     saveState();
-    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(data.reply);
+    if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(reply);
   } catch (e) {
     typing.remove();
-    alert('Ошибка: ' + e.message);
+    const code = (e && e.code) || '';
+    const friendly = (e && e.friendly) || (window.MashaAPI ? MashaAPI.friendlyMessage(code) : '') || e.message || 'ошибка';
+    const offline = code === 'offline' || code === 'network'
+      || (window.MashaAPI && MashaAPI.isOffline());
+
+    if (offline) {
+      state.pending.push({ text: text, image: image || null, ts: Date.now() });
+      saveState();
+      toast('Нет интернета. Сообщение сохранено и уйдёт, когда связь вернётся.', 'error');
+    } else {
+      // возвращаем текст в поле, чтобы можно было отправить одним нажатием
+      if (!input.value) input.value = text;
+      toast('Маша не ответила: ' + friendly, 'error');
+      console.error('sendMessage failed:', e);
+    }
+  } finally {
+    setSending(false);
   }
 }
 
-async function callAI(text) {
+/* Досылка сообщений, накопившихся без интернета. */
+async function flushPending() {
+  if (isSending || !state.pending || !state.pending.length) return;
+  if (window.MashaAPI && MashaAPI.isOffline()) return;
+
+  const batch = state.pending.slice();
+  state.pending = [];
+  saveState();
+
+  for (const item of batch) {
+    try {
+      setSending(true);
+      const memoryContext = await buildArchiveContext(item.text);
+      const data = await callAI(item.text, { image: item.image, memoryContext: memoryContext });
+      const reply = String(data.reply || '').trim();
+      if (reply) {
+        state.messages.push({ role: 'assistant', content: reply, ts: Date.now() });
+        state.lastMashaMessageTime = Date.now();
+        saveLiveMessage({ role: 'assistant', content: reply, ts: Date.now() });
+      }
+      renderMessages();
+      saveState();
+    } catch (e) {
+      state.pending.unshift(item);
+      saveState();
+      break;
+    } finally {
+      setSending(false);
+    }
+  }
+  if (state.pending.length) toast('Часть сообщений всё ещё ждёт связи', 'error');
+  else if (batch.length) toast('Дослала отложенные сообщения', 'ok');
+}
+
+async function callAI(text, opts) {
+  opts = opts || {};
+  const image = opts.image !== undefined ? opts.image : selectedImageBase64;
+
   const time = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
   const needsText = 'голод ' + Math.round(state.needs.hunger) + '%, усталость ' + Math.round(state.needs.energy) + '%';
-  const mem = state.memory.slice(-5).join('\n') || 'пока пусто';
+  const mem = state.memory.slice(-5).join('\n');
+  const archiveBlock = opts.memoryContext || '';
+  const memFull = [mem, archiveBlock].filter(Boolean).join('\n\n');
   const facts = getFactsText();
   const playlist = getPlaylistText();
   const relLevel = getRelationshipLevel();
   const trends = getTrendsText();
-  
+
   const calendarParts = [];
   for (const [name, date] of Object.entries(EVENTS)) {
     const days = getDaysUntilEvent(date.month, date.day);
     calendarParts.push(`${name}: через ${days} дн.`);
   }
   const calendar = calendarParts.join('; ');
-  
-  const sys = state.prompt.replace('{{TIME}}', time).replace('{{STATE}}', state.currentState)
-    .replace('{{NEEDS}}', needsText).replace('{{MEMORY}}', mem)
+
+  // В шаблоне промпта нет слота {{MEMORY}} — поэтому дописываем воспоминания
+  // явным блоком. Если слот есть (свой промпт) — просто подставляем в него.
+  const hasMemorySlot = state.prompt.indexOf('{{MEMORY}}') !== -1;
+  let sys = state.prompt
+    .replace('{{TIME}}', time).replace('{{STATE}}', state.currentState)
+    .replace('{{NEEDS}}', needsText).replace('{{MEMORY}}', memFull || 'пока пусто')
     .replace('{{FACTS}}', facts).replace('{{CALENDAR}}', calendar)
     .replace('{{PLAYLIST}}', playlist).replace('{{RELATIONSHIP_VALUE}}', state.relationship)
     .replace('{{RELATIONSHIP_TONE}}', relLevel.tone).replace('{{TRENDS}}', trends);
-  
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      text: text, 
-      image: selectedImageBase64, 
-      systemPrompt: sys,
-      history: state.messages.slice(-16, -1).map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content })),
-      lastThought: state.lastThought,
-      events: state.events.slice(-3),
-      userStatus: state.userStatus
-    })
-  });
-  
-  if (!res.ok) throw new Error('API ' + res.status + ': ' + (await res.text()).slice(0, 200));
-  const data = await res.json();
-  return data;
+
+  if (memFull && !hasMemorySlot) {
+    sys += '\n\n═══════════════════════════════════════\nПАМЯТЬ\n═══════════════════════════════════════\n' + memFull;
+  }
+
+  if (archiveBlock) {
+    sys += '\n\nВАЖНО ПРО ПАМЯТЬ: выше — реальные фрагменты вашей переписки за прошлое. '
+      + 'Можешь ссылаться на них как на воспоминания, но не выдумывай деталей, которых там нет '
+      + 'и не пересказывай их дословно без повода.';
+  }
+
+  const payload = {
+    text: text,
+    image: image || null,
+    systemPrompt: sys,
+    history: state.messages.slice(-16, -1)
+      .filter(m => m.content)
+      .map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content })),
+    lastThought: state.lastThought,
+    events: state.events.slice(-3),
+    userStatus: state.userStatus
+  };
+
+  if (typeof MashaAPI === 'undefined') {
+    throw new Error('Клиент API не загрузился (проверь папку js/)');
+  }
+  return await MashaAPI.chat(payload);
 }
 
 function saveState() {
+  try {
+    saveStateRaw();
+  } catch (e) {
+    // Переполнение localStorage (обычно из-за фото в base64). Чистим фото
+    // у старых сообщений — сам архив в IndexedDB при этом не страдает.
+    console.warn('localStorage переполнен, чищу старые фото', e);
+    let stripped = false;
+    for (let i = 0; i < state.messages.length - 8; i++) {
+      if (state.messages[i].image) { state.messages[i].image = null; stripped = true; }
+    }
+    if (!stripped && state.messages.length > 200) {
+      state.messages = state.messages.slice(-200);
+    }
+    try {
+      saveStateRaw();
+    } catch (e2) {
+      console.error('saveState: сохранить не удалось', e2);
+      toast('Память телефона заполнена — старые фото удалены', 'error');
+    }
+  }
+}
+
+function saveStateRaw() {
   localStorage.setItem('masha_messages', JSON.stringify(state.messages));
   localStorage.setItem('masha_memory', JSON.stringify(state.memory));
   localStorage.setItem('masha_facts', JSON.stringify(state.facts));
@@ -1363,6 +1709,450 @@ function saveState() {
   localStorage.setItem('masha_lastMashaMessageTime', state.lastMashaMessageTime);
   localStorage.setItem('masha_userStatus', state.userStatus);
   localStorage.setItem('masha_lastSurpriseTime', state.lastSurpriseTime);
+  localStorage.setItem('masha_initiativeEnabled', state.initiativeEnabled ? '1' : '0');
+  localStorage.setItem('masha_notifyEnabled', state.notifyEnabled ? '1' : '0');
+  localStorage.setItem('masha_pending', JSON.stringify(state.pending || []));
+}
+
+/* ==================================================================
+   ПАМЯТЬ: архив 265 000 сообщений в IndexedDB + поиск по ключевым словам
+   ================================================================== */
+
+async function initMemory() {
+  const el = document.getElementById('memory-stats');
+  if (typeof MashaMemory === 'undefined') {
+    if (el) el.textContent = 'модуль памяти не загрузился (проверь папку js/)';
+    return;
+  }
+  try {
+    await MashaMemory.open();
+    const n = await MashaMemory.db.count();
+    state.archiveReady = n > 0;
+    await updateMemoryStats();
+
+    if (n === 0) {
+      await seedBundledArchive();
+    } else if (state.messages.length === 0) {
+      // Первый запуск с готовым архивом: показываем последние сообщения,
+      // чтобы чат не был пустым.
+      const recent = await MashaMemory.db.getRecent(40);
+      recent.forEach(m => state.messages.push({ role: m.role, content: m.content, ts: m.ts }));
+      renderMessages();
+    }
+  } catch (e) {
+    console.error('initMemory failed', e);
+    if (el) el.textContent = 'ошибка памяти: ' + (e && e.message || e);
+  }
+}
+
+async function updateMemoryStats(prefix) {
+  const el = document.getElementById('memory-stats');
+  if (!el) return;
+  if (typeof MashaMemory === 'undefined' || !MashaMemory.db) {
+    el.textContent = prefix || 'архив пуст — можно импортировать JSON-файлы';
+    return;
+  }
+  try {
+    const s = await MashaMemory.db.getStats();
+    if (!s.messages) {
+      el.innerHTML = (prefix ? prefix + ' • ' : '') + 'архив пуст — импортируй JSON-файлы';
+      return;
+    }
+    const mb = (s.estBytes / (1024 * 1024)).toFixed(1);
+    const period = s.oldest
+      ? MashaSearch.formatDate(s.oldest).slice(0, 10) + ' — ' + MashaSearch.formatDate(s.newest).slice(0, 10)
+      : '';
+    el.innerHTML = (prefix ? prefix + ' • ' : '')
+      + 'сообщений: <b>' + s.messages.toLocaleString('ru-RU') + '</b>'
+      + ' • ключевых слов: ' + (s.terms || 0).toLocaleString('ru-RU')
+      + ' • ~' + mb + ' МБ'
+      + (period ? '<br>' + period : '')
+      + (state.herName ? '<br>в архиве Маша — это «' + state.herName + '»' : '')
+      + '<br><span style="color:#5b9bd5">нужные старые сообщения подставляются в промпт автоматически</span>';
+  } catch (e) {
+    el.textContent = 'не удалось прочитать архив: ' + (e && e.message || e);
+  }
+}
+
+function setArchiveProgress(text, percent) {
+  const el = document.getElementById('archive-progress');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.textContent = text + (typeof percent === 'number' && isFinite(percent) ? ' — ' + Math.round(percent) + '%' : '');
+}
+
+function fmtNum(n) { return (n || 0).toLocaleString('ru-RU'); }
+
+/* Единый обработчик прогресса.
+   Модуль импорта зовёт onProgress(filesDone, filesTotal, detail),
+   модуль памяти — onProgress(done, total). Поддерживаем оба вида. */
+function archiveProgressHandler(detail, filesDone, filesTotal) {
+  if (typeof detail === 'number') {
+    setArchiveProgress('сохраняю: ' + fmtNum(detail), filesTotal ? (filesDone / filesTotal) * 100 : undefined);
+    return;
+  }
+  const filesPercent = filesTotal ? ((filesDone || 0) / filesTotal) * 100 : undefined;
+  if (!detail) { setArchiveProgress('импорт…', filesPercent); return; }
+
+  const phase = detail.phase || detail.stage || '';
+  const file = detail.file ? ' (' + detail.file + ')' : '';
+  const done = detail.messagesDone !== undefined ? detail.messagesDone : detail.done;
+  const total = detail.messagesTotal !== undefined ? detail.messagesTotal : detail.total;
+  const percent = total ? (done / total) * 100 : filesPercent;
+
+  switch (phase) {
+    case 'start':
+      setArchiveProgress('начинаю импорт' + (filesTotal ? ' (' + filesTotal + ' файл(ов))' : ''));
+      break;
+    case 'read':
+      setArchiveProgress('читаю файл' + file, filesPercent);
+      break;
+    case 'import':
+      setArchiveProgress('сохраняю в память: ' + fmtNum(done) + (total ? ' из ' + fmtNum(total) : ''), percent);
+      break;
+    case 'file-done':
+      setArchiveProgress('файл обработан' + file, filesPercent);
+      break;
+    case 'file-error':
+      setArchiveProgress('ошибка в файле' + file + ': ' + (detail.error || ''), filesPercent);
+      break;
+    case 'index':
+    case 'buildIndex':
+      setArchiveProgress('строю индекс: ' + fmtNum(done), percent);
+      break;
+    case 'done':
+      break;
+    default:
+      if (done !== undefined || total !== undefined) {
+        setArchiveProgress('импорт: ' + fmtNum(done) + (total ? ' из ' + fmtNum(total) : ''), percent);
+      } else if (detail.message) {
+        setArchiveProgress(detail.message, percent);
+      }
+  }
+}
+
+/* Спрашиваем, кто из участников архива — Маша. Нужно только для нестандартных
+   экспортов: у обычного Telegram-экспорта личного чата собеседник определяется сам. */
+let whoResolver = null;
+
+function askWhoIsShe(participants, fileName) {
+  return new Promise(resolve => {
+    const box = document.getElementById('who-options');
+    const text = document.getElementById('who-text');
+    if (!box) { resolve(null); return; }
+    if (text) {
+      text.textContent = 'В файле' + (fileName ? ' «' + fileName + '»' : '') +
+        ' нашлись такие участники. Нажми на ту, чьи сообщения — Маша (остальные будут считаться тобой).';
+    }
+    box.innerHTML = '';
+    (participants || []).forEach(p => {
+      const name = p.name || p.id || 'без имени';
+      const btn = document.createElement('button');
+      btn.textContent = name + '  (' + (p.count || 0).toLocaleString('ru-RU') + ' сообщ.)';
+      btn.style.display = 'block';
+      btn.style.width = '100%';
+      btn.style.textAlign = 'left';
+      btn.onclick = () => answerWhoIsShe(name);
+      box.appendChild(btn);
+    });
+    whoResolver = resolve;
+    document.getElementById('who-modal').classList.add('active');
+  });
+}
+
+function answerWhoIsShe(name) {
+  const modal = document.getElementById('who-modal');
+  if (modal) modal.classList.remove('active');
+  if (name) {
+    state.herName = name;
+    localStorage.setItem('masha_herName', name);
+    toast('Запомнила: Маша — это ' + name, 'ok');
+  }
+  const r = whoResolver;
+  whoResolver = null;
+  if (r) r(name || null);
+}
+
+async function handleArchiveFiles(event) {
+  const files = Array.from((event.target && event.target.files) || []);
+  if (event.target) event.target.value = '';
+  if (!files.length) return;
+  if (typeof MashaImport === 'undefined' || typeof MashaMemory === 'undefined') {
+    toast('Модули памяти не загрузились (папка js/)', 'error');
+    return;
+  }
+  try {
+    if (!MashaMemory.db) await MashaMemory.open();
+    const totalMb = files.reduce((a, f) => a + (f.size || 0), 0) / 1048576;
+    if (totalMb > 25) {
+      toast('Файлы большие (' + totalMb.toFixed(0) + ' МБ). Разбор может занять несколько минут и много памяти — не закрывай приложение.',
+        'error');
+    } else {
+      toast('Импорт архива: ' + files.length + ' файл(ов), ' + totalMb.toFixed(1) + ' МБ.', 'ok');
+    }
+
+    const started = Date.now();
+    const stats = await MashaImport.importFiles(files, {
+      memory: MashaMemory.db,
+      source: 'archive',
+      herName: state.herName || '',
+      chooseHer: askWhoIsShe,
+      onProgress: (filesDone, filesTotal, detail) => archiveProgressHandler(detail, filesDone, filesTotal)
+    });
+    state.archiveReady = true;
+    setArchiveProgress('');
+    const secs = ((Date.now() - started) / 1000).toFixed(0);
+    await updateMemoryStats('импорт за ' + secs + ' с');
+    const errs = (stats.errors && stats.errors.length) ? ' Ошибки: ' + stats.errors.slice(0, 2).join('; ') : '';
+    toast('Готово: ' + fmtNum(stats.inserted) + ' сообщений'
+      + (stats.duplicates ? ', дубликатов пропущено: ' + fmtNum(stats.duplicates) : '') + errs,
+      stats.errors && stats.errors.length ? 'error' : 'ok');
+  } catch (e) {
+    console.error('archive import failed', e);
+    setArchiveProgress('');
+    toast('Ошибка импорта архива: ' + (e && e.message || e), 'error');
+  }
+}
+
+async function rebuildArchiveIndex() {
+  if (typeof MashaMemory === 'undefined' || !MashaMemory.db) {
+    toast('Архив ещё не открыт', 'error');
+    return;
+  }
+  try {
+    if (typeof MashaMemory.db.rebuildIndex === 'function') {
+      toast('Пересобираю индекс ключевых слов…', 'ok');
+      await MashaMemory.db.rebuildIndex((done, total) => {
+        setArchiveProgress('индекс: ' + (done || 0).toLocaleString('ru-RU') + (total ? ' / ' + total.toLocaleString('ru-RU') : ''),
+          total ? (done / total) * 100 : undefined);
+      });
+      setArchiveProgress('');
+      await updateMemoryStats('индекс пересобран');
+      toast('Индекс пересобран', 'ok');
+    } else {
+      toast('Эта версия модуля памяти не умеет пересобирать индекс — просто импортируй архив заново', 'error');
+    }
+  } catch (e) {
+    setArchiveProgress('');
+    toast('Не удалось пересобрать индекс: ' + (e && e.message || e), 'error');
+  }
+}
+
+async function clearArchive() {
+  if (typeof MashaMemory === 'undefined' || !MashaMemory.db) return;
+  if (!confirm('Удалить весь архив переписки из памяти приложения? Файлы на компьютере не пострадают.')) return;
+  try {
+    await MashaMemory.db.clear();
+    state.archiveReady = false;
+    await updateMemoryStats('архив очищен');
+    toast('Архив очищен', 'ok');
+  } catch (e) {
+    toast('Не удалось очистить архив: ' + (e && e.message || e), 'error');
+  }
+}
+
+/* Готовый индекс из архива (masha-index.json.gz) — тогда телефону не нужно
+   строить индекс самому: 265к сообщений становятся доступны заметно быстрее. */
+async function loadBundledIndex() {
+  if (typeof MashaImport === 'undefined' || typeof MashaMemory === 'undefined' || !MashaMemory.db) return null;
+  const urls = ['archive/masha-index.json.gz', 'archive/masha-index.json', 'masha-index.json.gz'];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      let data;
+      if (/\.gz$/i.test(url)) {
+        const buf = await res.arrayBuffer();
+        if (typeof MashaImport.gunzipText !== 'function') continue;
+        data = JSON.parse(await MashaImport.gunzipText(buf));
+      } else {
+        data = JSON.parse(await res.text());
+      }
+      const r = await MashaMemory.db.loadIndex(data, {
+        onProgress: (done, total) => archiveProgressHandler({ phase: 'index', done: done, total: total })
+      });
+      console.log('prebuilt index loaded:', r);
+      return r;
+    } catch (e) {
+      console.warn('bundled index not available at', url, e && e.message);
+    }
+  }
+  return null;
+}
+
+/* Если архив положили в репозиторий (папка archive/), он подхватится сам —
+   приложению не нужен ни сайт, ни интернет для памяти. */
+async function seedBundledArchive() {
+  if (typeof MashaImport === 'undefined' || typeof fetch !== 'function') return false;
+  const candidates = [
+    'archive/masha-archive.json.gz', 'archive/masha-archive.json',
+    'masha-archive.json.gz', 'masha-archive.json'
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      toast('Нашла встроенный архив — восстанавливаю память…', 'ok');
+
+      const prebuilt = await loadBundledIndex();
+      setArchiveProgress(prebuilt ? 'индекс уже готов, читаю сообщения…' : 'читаю архив…');
+
+      let stats;
+      if (/\.gz$/i.test(url)) {
+        const buf = await res.arrayBuffer();
+        stats = await MashaImport.importGzipBuffer(buf, {
+          memory: MashaMemory.db,
+          source: 'bundle',
+          buildIndex: !prebuilt,
+          onProgress: (done, total) => archiveProgressHandler({ phase: 'import', messagesDone: done, messagesTotal: total })
+        });
+      } else {
+        const data = JSON.parse(await res.text());
+        const norm = MashaImport.normalizeArchive(data, { source: 'bundle', herName: state.herName || '' });
+        stats = await MashaMemory.db.importMessages(norm.messages, {
+          source: 'bundle',
+          buildIndex: !prebuilt,
+          onProgress: (done, total) => archiveProgressHandler({ phase: 'import', done: done, total: total })
+        });
+      }
+      state.archiveReady = true;
+      setArchiveProgress('');
+      await updateMemoryStats(prebuilt ? 'встроенный архив + готовый индекс' : 'встроенный архив загружен');
+      toast('Память восстановлена: ' + ((stats && stats.inserted) || 0).toLocaleString('ru-RU') + ' сообщений', 'ok');
+      return true;
+    } catch (e) {
+      console.warn('bundled archive not available at', url, e && e.message);
+    }
+  }
+  setArchiveProgress('');
+  return false;
+}
+
+/* ==================================================================
+   СЕРВЕРЫ (endpoints)
+   ================================================================== */
+
+function renderEndpoints() {
+  const el = document.getElementById('endpoints-input');
+  if (!el || typeof MashaAPI === 'undefined') return;
+  el.value = MashaAPI.getEndpoints().join('\n');
+}
+
+function saveEndpoints() {
+  const el = document.getElementById('endpoints-input');
+  if (!el || typeof MashaAPI === 'undefined') return;
+  const list = el.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!list.length) {
+    toast('Нужен хотя бы один адрес сервера', 'error');
+    return;
+  }
+  MashaAPI.setEndpoints(list);
+  MashaAPI.resetCooldowns();
+  toast('Сохранено серверов: ' + list.length, 'ok');
+}
+
+async function checkEndpoints() {
+  const el = document.getElementById('endpoints-result');
+  if (!el || typeof MashaAPI === 'undefined') return;
+  el.textContent = 'проверяю…';
+  const results = await MashaAPI.healthAll();
+  el.innerHTML = results.map(r => r.ok
+    ? '<div style="color:#7ddc9b">✓ ' + r.endpoint + ' — ' + r.latencyMs + ' мс' + (r.data && r.data.hasKey === false ? ' (нет ключа API на сервере!)' : '') + '</div>'
+    : '<div style="color:#ff9a9a">✗ ' + r.endpoint + ' — ' + (r.friendly || r.code || 'недоступен') + '</div>'
+  ).join('');
+}
+
+/* ==================================================================
+   БЭКАП
+   ================================================================== */
+
+async function downloadBackup() {
+  try {
+    let blob = null;
+    if (typeof MashaImport !== 'undefined' && typeof MashaImport.exportBackup === 'function') {
+      blob = await MashaImport.exportBackup({
+        memory: (typeof MashaMemory !== 'undefined' && MashaMemory.db) ? MashaMemory.db : null,
+        settings: {
+          prompt: state.prompt,
+          relationship: state.relationship,
+          trends: state.trends,
+          userStatus: state.userStatus,
+          lastThought: state.lastThought,
+          initiativeEnabled: state.initiativeEnabled,
+          notifyEnabled: state.notifyEnabled
+        },
+        facts: state.facts,
+        recentLimit: 500
+      });
+      if (blob && typeof blob.text === 'string') {
+        blob = new Blob([blob.text], { type: blob.type || 'application/json' });
+      }
+    }
+    if (!blob) {
+      const data = {
+        v: 1, exportedAt: Date.now(),
+        messages: state.messages, facts: state.facts, memory: state.memory,
+        settings: { prompt: state.prompt, relationship: state.relationship },
+        playlist: state.playlist, events: state.events,
+        lastThought: state.lastThought, userStatus: state.userStatus
+      };
+      blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'masha-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Бэкап скачан', 'ok');
+  } catch (e) {
+    toast('Не удалось сделать бэкап: ' + (e && e.message || e), 'error');
+  }
+}
+
+async function handleBackupFile(event) {
+  const file = event.target && event.target.files && event.target.files[0];
+  if (event.target) event.target.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const raw = data.messages;
+    if (Array.isArray(raw)) {
+      if (raw.length && Array.isArray(raw[0])) {
+        // формат бэкапа: [role, ts, content]
+        state.messages = raw.map(r => ({
+          role: r[0] === 'bot' ? 'assistant' : r[0],
+          ts: r[1] || 0,
+          content: String(r[2] === null || r[2] === undefined ? '' : r[2])
+        })).filter(m => m.content);
+      } else {
+        state.messages = raw;
+      }
+    } else if (Array.isArray(data.chat)) {
+      state.messages = data.chat;
+    }
+    const st = data.settings || {};
+    if (typeof st.prompt === 'string' && st.prompt) state.prompt = st.prompt;
+    if (typeof data.prompt === 'string' && data.prompt) state.prompt = data.prompt;
+    if (typeof st.relationship === 'number') state.relationship = st.relationship;
+    if (typeof data.relationship === 'number') state.relationship = data.relationship;
+    if (typeof st.lastThought === 'string') state.lastThought = st.lastThought;
+    if (Array.isArray(data.facts)) state.facts = data.facts;
+    if (Array.isArray(data.memory)) state.memory = data.memory;
+    if (Array.isArray(data.playlist)) state.playlist = data.playlist;
+    if (Array.isArray(data.events)) state.events = data.events;
+    saveState();
+    renderMessages();
+    updateRelationshipDisplay();
+    renderPlaylist();
+    toast('Бэкап загружен', 'ok');
+  } catch (e) {
+    toast('Не получилось прочитать бэкап: ' + (e && e.message || e), 'error');
+  }
 }
 
 function openSettings() {
@@ -1371,13 +2161,27 @@ function openSettings() {
   loadVoices();
   updateRelationshipDisplay();
   renderTrends();
+  renderEndpoints();
+  updateMemoryStats();
+  updateInitiativeStatus(initiative ? 'работает' : 'запускается');
+  const initEl = document.getElementById('initiative-enabled');
+  if (initEl) initEl.checked = !!state.initiativeEnabled;
+  const notifyEl = document.getElementById('notify-enabled');
+  if (notifyEl) notifyEl.checked = !!state.notifyEnabled;
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
 function saveSettings() {
   state.prompt = document.getElementById('prompt').value;
   localStorage.setItem('masha_prompt', state.prompt);
-  localStorage.setItem('selected_voice', document.getElementById('voice-select').value);
+  const voiceEl = document.getElementById('voice-select');
+  if (voiceEl) localStorage.setItem('selected_voice', voiceEl.value);
+  const initEl = document.getElementById('initiative-enabled');
+  if (initEl) state.initiativeEnabled = initEl.checked;
+  const notifyEl = document.getElementById('notify-enabled');
+  if (notifyEl) state.notifyEnabled = notifyEl.checked;
+  saveState();
   closeSettings();
+  toast('Настройки сохранены', 'ok');
 }
 
 function handleFileSelect(event) {
@@ -1415,10 +2219,26 @@ state.messages = state.messages.map(m => {
   return m;
 });
 saveState();
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-    .then(reg => console.log('SW OK:', reg.scope))
-    .catch(err => console.error('SW error:', err));
+// Регистрация service worker. Относительный путь — работает и на Vercel,
+// и внутри APK (https://localhost).
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => {
+        console.log('SW OK:', reg.scope);
+        if (reg.update) reg.update();
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              toast('Обновление готово: перезапусти приложение', 'ok');
+            }
+          });
+        });
+      })
+      .catch(err => console.error('SW error:', err));
+  });
 }
 init();
 </script>
