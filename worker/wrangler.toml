@@ -1,0 +1,22 @@
+# masha-fixed / worker/wrangler.toml
+# Cloudflare Worker — резервный хост релея «Маши» (основной хост: Vercel /api/relay).
+
+name = "masha-relay"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+# Секрет с ключом НЕ хранится в этом файле:
+#   wrangler secret put DEEPSEEK_API_KEY
+# (локально для `wrangler dev` можно положить в .dev.vars: DEEPSEEK_API_KEY=sk-...)
+# Алиас DEEPSEEK_KEY тоже поддерживается воркером.
+#
+# [observability]
+# enabled = true
+
+[vars]
+DEEPSEEK_TEXT_MODEL = "deepseek-flash"
+DEEPSEEK_VISION_MODEL = "deepseek-v4.1-flash"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
+RELAY_TIMEOUT_MS = "30000"
+# DEEPSEEK_THOUGHTS = "0"   # выключить внутренний монолог

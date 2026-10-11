@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сборка архива переписки — Маша</title>
+<style>
+  :root {
+    --bg: #0e1621;
+    --panel: #17212b;
+    --panel-2: #1c2733;
+    --accent: #2b5278;
+    --accent-hi: #3a6da0;
+    --text: #e6edf3;
+    --muted: #8b9bb0;
+    --ok: #4caf7d;
+    --warn: #e0a33e;
+    --err: #e0574f;
+    --border: #24313f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 17px; margin: 26px 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 13.5px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  #drop {
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    background: var(--panel-2);
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  #drop.hover { background: #22303f; border-color: var(--accent-hi); }
+  #drop .big { font-size: 16px; margin-bottom: 6px; }
+  #drop .small { color: var(--muted); font-size: 13px; }
+  input[type=file] { display: none; }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--accent);
+    border: 0;
+    border-radius: 9px;
+    padding: 11px 18px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hi); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  ul.files { list-style: none; margin: 0; padding: 0; }
+  ul.files li {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 7px 10px; border-radius: 8px; background: var(--panel-2);
+    margin-bottom: 6px; font-size: 13.5px;
+  }
+  ul.files li .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ul.files li .s { color: var(--muted); flex: 0 0 auto; }
+  .bar { height: 9px; border-radius: 6px; background: var(--panel-2); overflow: hidden; margin: 14px 0 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .2s; }
+  .status { color: var(--muted); font-size: 13.5px; min-height: 20px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .stat { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 19px; }
+  .stat span { color: var(--muted); font-size: 12.5px; }
+  .msg { border-radius: 9px; padding: 10px 12px; margin-top: 10px; font-size: 13.5px; }
+  .msg.err { background: rgba(224, 87, 79, .13); border: 1px solid rgba(224, 87, 79, .4); color: #ffc9c5; }
+  .msg.warn { background: rgba(224, 163, 62, .12); border: 1px solid rgba(224, 163, 62, .4); color: #f4d9a8; }
+  .msg.ok { background: rgba(76, 175, 125, .12); border: 1px solid rgba(76, 175, 125, .4); color: #bfe9d3; }
+  .hint { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+  a.dl { display: inline-block; text-decoration: none; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Сборка архива переписки</h1>
+  <p class="sub">Всё считается прямо в браузере: файлы никуда не отправляются, интернет не нужен. Работает и при открытии с диска (двойной клик по файлу).</p>
+
+  <div id="drop" class="card" style="border-style:dashed">
+    <div class="big">Перетащите сюда JSON-файлы переписки</div>
+    <div class="small">или нажмите, чтобы выбрать · поддерживаются <code>.json</code>, <code>.json.gz</code>, <code>.bin</code></div>
+    <input type="file" id="picker" multiple accept=".json,.gz,.bin,application/json">
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div><b>Выбранные файлы</b> <span id="fileCount" class="hint">— пока ничего</span></div>
+      <button id="clearBtn" class="ghost" disabled>Очистить</button>
+    </div>
+    <ul class="files" id="fileList" style="margin-top:10px"></ul>
+
+    <div class="row" style="margin-top:12px">
+      <button id="buildBtn" disabled>Собрать архив</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="bar"><i id="prog"></i></div>
+    <div id="messages"></div>
+  </div>
+
+  <div class="card hide" id="result">
+    <h2 style="margin-top:0">Готово</h2>
+    <div class="stats" id="statGrid"></div>
+    <div class="row">
+      <a class="dl" id="dlArchive" download="masha-archive.json.gz"><button>Скачать masha-archive.json.gz</button></a>
+      <a class="dl" id="dlIndex" download="masha-index.json.gz"><button>Скачать masha-index.json.gz</button></a>
+    </div>
+    <p class="hint" style="margin-bottom:0">Архив кладётся в память приложения через «Настройки → Импорт архива», индекс ускоряет поиск по старым сообщениям.</p>
+  </div>
+
+  <div class="card">
+    <b>Что понимает инструмент</b>
+    <p class="hint" style="margin:8px 0 0">
+      • <b>array</b> — <code>[{"role":"user","content":"...","ts":1699999999}]</code><br>
+      • <b>messages / Telegram</b> — <code>result.json</code> с полями <code>from</code>, <code>date</code>, <code>text</code> (строка или массив фрагментов)<br>
+      • <b>qwen</b> — экспорт чата Qwen: <code>[{"chat":{"messages":[{"role","content","content_list","timestamp"}]}}]</code><br>
+      • <b>export</b> — наш собственный архив: <code>{"v":1,"messages":[["user",1699999999,"текст"]]}</code><br>
+      Роли: <code>user/human/me/я/вы/Эдуард</code> → «он», <code>assistant/bot/ai/model/Маша</code> → «она», остальные пропускаются.
+    </p>
+  </div>
+</div>
+
+<!-- Подключаем модули проекта обычными тегами: при file:// ES-модули не работают -->
+<script src="../js/search-engine.js" onerror="window.__mashaNoSearch=true"></script>
+<script src="../js/import-manager.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var drop = document.getElementById('drop');
+  var picker = document.getElementById('picker');
+  var fileList = document.getElementById('fileList');
+  var fileCount = document.getElementById('fileCount');
+  var clearBtn = document.getElementById('clearBtn');
+  var buildBtn = document.getElementById('buildBtn');
+  var statusEl = document.getElementById('status');
+  var prog = document.getElementById('prog');
+  var messagesEl = document.getElementById('messages');
+  var resultEl = document.getElementById('result');
+  var statGrid = document.getElementById('statGrid');
+  var dlArchive = document.getElementById('dlArchive');
+  var dlIndex = document.getElementById('dlIndex');
+
+  var state = { files: [] };
+  var objectUrls = [];
+
+  function human(bytes) {
+    if (bytes < 1024) return bytes + ' Б';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
+    return (bytes / 1048576).toFixed(2) + ' МБ';
+  }
+
+  function fmtDate(ts) {
+    if (!(ts > 0)) return '—';
+    var d = new Date(ts), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function say(text, kind, sticky) {
+    var el = document.createElement('div');
+    el.className = 'msg ' + (kind || 'warn');
+    el.textContent = text;
+    if (sticky) el.setAttribute('data-sticky', '1');
+    messagesEl.appendChild(el);
+    if (!sticky) {
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 4000);
+    }
+    return el;
+  }
+
+  function clearMessages() { messagesEl.innerHTML = ''; }
+
+  function renderFiles() {
+    fileList.innerHTML = '';
+    state.files.forEach(function (f) {
+      var li = document.createElement('li');
+      var n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = f.name;
+      var s = document.createElement('span');
+      s.className = 's';
+      s.textContent = human(f.size || 0);
+      li.appendChild(n);
+      li.appendChild(s);
+      fileList.appendChild(li);
+    });
+    fileCount.textContent = state.files.length ? ('— ' + state.files.length + ' шт., ' + human(totalSize())) : '— пока ничего';
+    clearBtn.disabled = !state.files.length;
+    buildBtn.disabled = !state.files.length;
+  }
+
+  function totalSize() {
+    var t = 0;
+    state.files.forEach(function (f) { t += (f.size || 0); });
+    return t;
+  }
+
+  function addFiles(list) {
+    for (var i = 0; i < list.length; i++) {
+      var f = list[i];
+      if (!f) continue;
+      var dup = state.files.some(function (x) { return x.name === f.name && x.size === f.size; });
+      if (!dup) state.files.push(f);
+    }
+    renderFiles();
+  }
+
+  function resetResult() {
+    resultEl.className = 'card hide';
+    statGrid.innerHTML = '';
+    objectUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) { } });
+    objectUrls = [];
+  }
+
+  function setProgress(percent) {
+    prog.style.width = Math.max(0, Math.min(100, percent)) + '%';
+  }
+
+  function yieldUI() {
+    return new Promise(function (r) { setTimeout(r, 0); });
+  }
+
+  async function gzipBlob(text) {
+    if (typeof CompressionStream !== 'function') return null;
+    var cs = new Blob([text], { type: 'application/json' }).stream().pipeThrough(new CompressionStream('gzip'));
+    return await new Response(cs).blob();
+  }
+
+  function stat(value, label) {
+    var d = document.createElement('div');
+    d.className = 'stat';
+    var b = document.createElement('b');
+    b.textContent = value;
+    var s = document.createElement('span');
+    s.textContent = label;
+    d.appendChild(b);
+    d.appendChild(s);
+    statGrid.appendChild(d);
+  }
+
+  /* ------------------------------------------------------------ события */
+
+  drop.addEventListener('click', function () { picker.click(); });
+  picker.addEventListener('change', function () { addFiles(picker.files); picker.value = ''; });
+
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); drop.classList.add('hover'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); drop.classList.remove('hover'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    var dt = e.dataTransfer;
+    if (dt && dt.files && dt.files.length) addFiles(dt.files);
+  });
+  // чтобы браузер не открывал файл, брошенный мимо зоны
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) { e.preventDefault(); });
+
+  clearBtn.addEventListener('click', function () {
+    state.files = [];
+    renderFiles();
+    clearMessages();
+    resetResult();
+    setProgress(0);
+    statusEl.textContent = '';
+    say('Список файлов очищен', 'ok');
+  });
+
+  /* -------------------------------------------------------------- сборка */
+
+  buildBtn.addEventListener('click', async function () {
+    var M = window.MashaImport;
+    clearMessages();
+    resetResult();
+    if (!M) {
+      say('Не найден ../js/import-manager.js — положите файл рядом с папкой tools и откройте страницу заново.', 'err', true);
+      return;
+    }
+    if (!state.files.length) return;
+
+    buildBtn.disabled = true;
+    clearBtn.disabled = true;
+    picker.disabled = true;
+    statusEl.textContent = 'Читаю файлы…';
+    setProgress(0);
+
+    var started = Date.now();
+    var collected = [];
+    var usedSources = [];
+    var formats = {};
+    var warnings = [];
+    var errors = [];
+    var readTotal = 0;
+    var skipped = 0;
+
+    try {
+      for (var i = 0; i < state.files.length; i++) {
+        var file = state.files[i];
+        statusEl.textContent = 'Обрабатываю ' + file.name + ' (' + (i + 1) + '/' + state.files.length + ')…';
+        setProgress((i / state.files.length) * 70);
+        await yieldUI();
+        try {
+          var text = await M.readFileText(file);           // никакого fetch — только File API
+          if (!text || !text.trim()) throw new Error('файл пустой');
+          var json;
+          try {
+            json = JSON.parse(text);
+          } catch (pe) {
+            throw new Error('не удалось разобрать JSON (' + pe.message + ')');
+          }
+          var res = M.normalizeArchive(json, { source: file.name });
+          if (res.format === 'unknown') throw new Error('формат архива не распознан');
+          if (!res.messages.length) throw new Error('в файле не найдено ни одного сообщения');
+          collected = collected.concat(res.messages);
+          if (usedSources.indexOf(file.name) === -1) usedSources.push(file.name);
+          formats[res.format] = (formats[res.format] || 0) + 1;
+          readTotal += res.total;
+          skipped += res.skipped;
+          res.warnings.forEach(function (w) { if (warnings.indexOf(w) === -1) warnings.push(w); });
+        } catch (fe) {
+          errors.push(file.name + ': ' + (fe && fe.message ? fe.message : fe));
+        }
+      }
+
+      if (!collected.length) {
+        throw new Error('Ни одного сообщения не собрано. ' + (errors.length ? errors.join('; ') : ''));
+      }
+
+      statusEl.textContent = 'Сортирую и строю индекс…';
+      setProgress(78);
+      await yieldUI();
+
+      var sources = usedSources;
+      var archive = M.buildArchive(collected, { sources: sources, builtAt: Date.now() });
+      var archiveText = JSON.stringify(archive);
+      var index = M.buildIndex(archive.messages, { maxPostings: M.MAX_POSTINGS || 1500 });
+      var indexText = JSON.stringify(index);
+
+      setProgress(90);
+      statusEl.textContent = 'Сжимаю…';
+      await yieldUI();
+
+      var gzArchive = null;
+      var gzIndex = null;
+      try {
+        gzArchive = await gzipBlob(archiveText);
+        gzIndex = await gzipBlob(indexText);
+      } catch (ge) {
+        gzArchive = null;
+      }
+      var gzipped = !!(gzArchive && gzIndex);
+      if (!gzipped) {
+        gzArchive = new Blob([archiveText], { type: 'application/json' });
+        gzIndex = new Blob([indexText], { type: 'application/json' });
+      }
+
+      var urlA = URL.createObjectURL(gzArchive);
+      var urlI = URL.createObjectURL(gzIndex);
+      objectUrls = [urlA, urlI];
+      dlArchive.href = urlA;
+      dlIndex.href = urlI;
+      dlArchive.setAttribute('download', gzipped ? 'masha-archive.json.gz' : 'masha-archive.json');
+      dlIndex.setAttribute('download', gzipped ? 'masha-index.json.gz' : 'masha-index.json');
+
+      var roles = { user: 0, assistant: 0 };
+      archive.messages.forEach(function (r) { if (r[0] === 'user') roles.user++; else roles.assistant++; });
+      var tsList = archive.messages.map(function (r) { return r[1]; }).filter(function (t) { return t > 0; });
+      var terms = Object.keys(index.terms);
+      var postings = 0;
+      terms.forEach(function (t) { postings += index.terms[t].length; });
+
+      statGrid.innerHTML = '';
+      stat(archive.count, 'сообщений в архиве');
+      stat(roles.user, 'он (user)');
+      stat(roles.assistant, 'она (assistant)');
+      stat(terms.length, 'термов в индексе');
+      stat((gzArchive.size / 1048576).toFixed(2) + ' МБ',
+        gzipped ? 'размер masha-archive.json.gz' : 'размер masha-archive.json (без сжатия)');
+      stat(((Date.now() - started) / 1000).toFixed(1) + ' с', 'время сборки');
+
+      resultEl.className = 'card';
+      setProgress(100);
+      statusEl.textContent = 'Готово: ' + archive.count + ' сообщений, ' + terms.length + ' термов.';
+
+      var summary = 'Форматы: ' + Object.keys(formats).map(function (f) { return f + '×' + formats[f]; }).join(', ') +
+        '. Прочитано записей: ' + readTotal + ', пропущено: ' + skipped +
+        '. Период: ' + fmtDate(tsList.length ? Math.min.apply(null, tsList) : 0) + ' — ' + fmtDate(tsList.length ? Math.max.apply(null, tsList) : 0) +
+        '. Постингов: ' + postings + '.';
+      say(summary, 'ok', true);
+
+      if (M.termEngine && !M.termEngine().ok) {
+        say('Индекс построен упрощённым разбором: ' + M.termEngine().reason, 'warn', true);
+      }
+      if (!gzipped) {
+        say('Браузер не поддерживает CompressionStream — файлы отданы без сжатия (.json).', 'warn', true);
+      }
+      if (warnings.length) say('Предупреждения: ' + warnings.slice(0, 5).join('; '), 'warn', true);
+      if (errors.length) say('Не обработаны: ' + errors.join('; '), 'err', true);
+    } catch (err) {
+      setProgress(0);
+      statusEl.textContent = 'Ошибка сборки';
+      say('Ошибка: ' + (err && err.message ? err.message : err), 'err', true);
+      if (errors.length) say('Детали по файлам: ' + errors.join('; '), 'warn', true);
+    } finally {
+      buildBtn.disabled = !state.files.length;
+      clearBtn.disabled = !state.files.length;
+      picker.disabled = false;
+    }
+  });
+
+  renderFiles();
+  if (!window.MashaImport) {
+    say('Не найден ../js/import-manager.js — инструмент не сможет собрать архив. Проверьте, что папка tools лежит внутри проекта.', 'err', true);
+  }
+})();
+</script>
+</body>
+</html>
