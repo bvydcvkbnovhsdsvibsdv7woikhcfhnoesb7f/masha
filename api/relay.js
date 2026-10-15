@@ -1,477 +1,356 @@
+/* СГЕНЕРИРОВАНО tools/make-adapters.mjs из worker/worker.js — правь worker.js и перезапусти генератор. */
 /**
- * masha-fixed / api/relay.js
- * Vercel serverless-релей к DeepSeek для приложения «Маша».
+ * masha-relay — релей к DeepSeek для приложения «Маша».
  *
- * ГЛАВНОЕ ПРАВИЛО: этот обработчик ВСЕГДА отвечает валидным JSON
- * (Content-Type: application/json; charset=utf-8) и НИКОГДА не отдаёт HTML,
- * стектрейс или пустое тело. Именно HTML-ответ ломал приложение
- * ошибкой «Unexpected token '<', "<!DOCTYPE" ... is not valid JSON».
+ * Контракт: ВСЕГДА валидный JSON, никогда HTML и никогда стектрейс.
  *
- * Контракт (INTERFACES.md § 4.1):
- *   GET     /api/relay         -> 200 {ok:true, service, version, hasKey, ...}   (диагностика)
- *   OPTIONS /api/relay         -> 204 + CORS
- *   POST    /api/relay         -> 200 {ok:true, reply, thought}
- *                              -> 200 {ok:true, initiative, text|reason}
- *                              -> 200 {ok:false, error, message, reply}   (мягкая ошибка для фронта)
- *                              -> 400 {ok:false, error:'bad_json', ...}
- *                              -> 405 {ok:false, error:'method_not_allowed', ...}
- *                              -> 500 {ok:false, error:'no_api_key', ...}
+ *   GET  /  |  GET /health  -> 200 {ok:true, service, version, hasKey, models, hint}
+ *   POST /  (и любой путь)  -> 200 {ok:true, reply, thought}
+ *                           -> 200 {ok:true, initiative:true, text} | {ok:true, initiative:false, reason}
+ *                           -> 200 {ok:false, error, message, reply}   (мягкая ошибка)
+ *                           -> 400 {ok:false, error:'bad_json', ...}
+ *                           -> 500 {ok:false, error:'no_api_key', ...}
+ *   OPTIONS (любой путь)    -> 204 + CORS
  *
- * Ключ берётся только из окружения: DEEPSEEK_API_KEY (или алиас DEEPSEEK_KEY).
+ * Настройки (секреты/переменные окружения):
+ *   DEEPSEEK_API_KEY      — обязательно (или алиас DEEPSEEK_KEY)
+ *   DEEPSEEK_TEXT_MODEL   — по умолчанию deepseek-flash (доступны deepseek-chat, deepseek-reasoner, deepseek-v4-pro)
+ *   DEEPSEEK_VISION_MODEL — по умолчанию deepseek-flash (модели deepseek-v4.1-flash в API НЕТ)
+ *   DEEPSEEK_BASE_URL     — по умолчанию https://api.deepseek.com/chat/completions
+ *   DEEPSEEK_THOUGHTS     — 0, чтобы отключить внутренний монолог (быстрее)
+ *   RELAY_TIMEOUT_MS      — по умолчанию 30000
+ *
+ * Локально:  $env:DEEPSEEK_API_KEY="..."; node worker/local-relay.mjs
+ * Cloudflare: вставить этот файл в дашборде (Edit code) → Deploy → Settings → Variables.
  */
 
-export const VERSION = '2.0.0';
-export const SERVICE = 'masha-relay';
+const VERSION = '2.0.0';
+const SERVICE = 'masha-relay';
 
-/* Мягкая фраза Маши (lowercase, без эмодзи) — фронт показывает её как её сообщение. */
-export const SOFT_REPLY = 'блин, у меня чето связь пропала, давай еще раз?';
-
-/** CORS выставляем ровно один раз, вместе с Content-Type. */
-const CORS_HEADERS = {
+const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Max-Age': '86400',
-  'Cache-Control': 'no-store'
+  'Access-Control-Allow-Private-Network': 'true',
+  'Access-Control-Max-Age': '86400'
 };
 
-/** Дефолты времени ожидания (переопределяются через RELAY_TIMEOUT_MS). */
-const TIMEOUT_DEFAULT_MS = 30000;
-const TIMEOUT_MAX_MS = 120000;
+/* Мягкая фраза Маши: в её стиле, lowercase, без эмодзи. */
+const SOFT_REPLY = 'блин, у меня чето связь пропала, давай еще раз?';
 
-/* ------------------------------------------------------------------ helpers */
-
-/** Единственная точка отправки JSON в Vercel-стиле. Заголовки ставятся ровно один раз. */
-export function sendJson(res, status, obj) {
-  const payload = JSON.stringify(obj === undefined ? {} : obj);
-  try {
-    if (res && typeof res.setHeader === 'function') {
-      for (const k of Object.keys(CORS_HEADERS)) res.setHeader(k, CORS_HEADERS[k]);
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    }
-  } catch (e) {
-    console.error('[relay] setHeader failed:', e);
-  }
-  try {
-    if (res && typeof res.status === 'function') {
-      const chain = res.status(status);
-      if (chain && typeof chain.json === 'function') return chain.json(obj === undefined ? {} : obj);
-      if (chain && typeof chain.send === 'function') return chain.send(payload);
-      if (chain && typeof chain.end === 'function') return chain.end(payload);
-      return chain;
-    }
-    if (res && typeof res.writeHead === 'function') {
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS });
-      if (typeof res.end === 'function') return res.end(payload);
-    }
-  } catch (e) {
-    // Второй раз заголовки не ставим: молча логируем, чтобы не получить ERR_HTTP_HEADERS_SENT.
-    console.error('[relay] response failed:', e);
-  }
-  return undefined;
+function json(status, data) {
+  return new Response(JSON.stringify(data), {
+    status: status,
+    headers: Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, CORS)
+  });
 }
 
-/** Мягкая ошибка в формате контракта. */
-export function softError(error, message, reply) {
+function softError(code, message, status) {
   return {
     ok: false,
-    error: String(error || 'server_error'),
-    message: String(message || 'что-то пошло не так на сервере'),
-    reply: typeof reply === 'string' && reply.trim() ? reply : SOFT_REPLY
+    error: code,
+    message: message || 'что-то сломалось на сервере',
+    reply: SOFT_REPLY
   };
 }
 
-/** Ошибка запроса к DeepSeek -> код вида deepseek_<status>. */
-export function errorFromFailure(failure) {
-  const f = failure || {};
-  if (f.status && Number.isFinite(Number(f.status))) {
-    return { error: 'deepseek_' + Number(f.status), message: 'deepseek ответил ошибкой ' + Number(f.status) + ', попробуем еще раз' };
-  }
-  if (f.kind === 'timeout') return { error: 'deepseek_timeout', message: 'deepseek не ответил вовремя, попробуем еще раз' };
-  if (f.kind === 'bad_body') return { error: 'deepseek_bad_response', message: 'deepseek ответил не тем, что мы ждали' };
-  if (f.kind === 'empty') return { error: 'deepseek_empty', message: 'deepseek ответил пустотой, попробуем еще раз' };
-  return { error: 'deepseek_unreachable', message: 'не получилось связаться с deepseek, попробуем еще раз' };
+function num(v, def) {
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : def;
 }
 
-/* -------------------------------------------------------------- config/env */
-
-function readEnv(env, name) {
-  if (!env) return undefined;
-  try {
-    const v = env[name];
-    return v === undefined || v === null ? undefined : v;
-  } catch (e) {
-    return undefined;
-  }
-}
-
-function clean(v) {
-  return typeof v === 'string' ? v.trim() : '';
-}
-
-/** Собирает конфигурацию релея из переменных окружения (Vercel) или env-биндингов воркера. */
-export function getConfig(env) {
-  const src = env && typeof env === 'object' ? env : {};
-  const key = clean(readEnv(src, 'DEEPSEEK_API_KEY')) || clean(readEnv(src, 'DEEPSEEK_KEY'));
-  const parsedTimeout = Number(clean(readEnv(src, 'RELAY_TIMEOUT_MS')));
-  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0
-    ? Math.min(parsedTimeout, TIMEOUT_MAX_MS)
-    : TIMEOUT_DEFAULT_MS;
-  const thoughtsFlag = clean(readEnv(src, 'DEEPSEEK_THOUGHTS')).toLowerCase();
+function configFrom(env) {
+  const e = env || {};
   return {
-    key,
-    hasKey: !!key,
-    baseUrl: clean(readEnv(src, 'DEEPSEEK_BASE_URL')) || 'https://api.deepseek.com/chat/completions',
-    textModel: clean(readEnv(src, 'DEEPSEEK_TEXT_MODEL')) || 'deepseek-flash',
-    visionModel: clean(readEnv(src, 'DEEPSEEK_VISION_MODEL')) || 'deepseek-v4.1-flash',
-    timeoutMs,
-    thoughts: !(thoughtsFlag === '0' || thoughtsFlag === 'false' || thoughtsFlag === 'off' || thoughtsFlag === 'no')
+    key: e.DEEPSEEK_API_KEY || e.DEEPSEEK_KEY || '',
+    textModel: e.DEEPSEEK_TEXT_MODEL || 'deepseek-flash',
+    // deepseek-v4.1-flash в API НЕ существует (проверено запросом: поддерживаются
+    // deepseek-flash и deepseek-v4-pro), поэтому для фото тоже используем flash.
+    visionModel: e.DEEPSEEK_VISION_MODEL || 'deepseek-flash',
+    baseUrl: e.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions',
+    thoughts: String(e.DEEPSEEK_THOUGHTS === undefined ? '1' : e.DEEPSEEK_THOUGHTS) !== '0',
+    timeoutMs: num(e.RELAY_TIMEOUT_MS, 30000),
+    maxTokens: num(e.RELAY_MAX_TOKENS, 350),
+    temperature: 0.9
   };
 }
 
-/* ------------------------------------------------------------ request body */
-
-/**
- * Достаёт тело запроса и парсит его.
- * req.body может быть объектом (Vercel часто уже распарсил), строкой, Buffer и т.п.
- * Возвращает {ok:true, body} либо {ok:false, code:'bad_json'|'json_object_required'}.
- */
-export async function parseRequestBody(req) {
-  let raw = req ? req.body : undefined;
-
-  // тело ещё не прочитано — читаем поток (или строку, если это уже текст)
-  if (raw === undefined || raw === null || raw === '') {
-    if (req && typeof req[Symbol.asyncIterator] === 'function') {
-      try {
-        let text = '';
-        for await (const chunk of req) text += typeof chunk === 'string' ? chunk : String(chunk);
-        raw = text;
-      } catch (e) {
-        return { ok: false, code: 'bad_json', detail: 'не удалось прочитать тело запроса' };
-      }
-    }
-  }
-
-  if (raw === undefined || raw === null) return { ok: false, code: 'bad_json', detail: 'тело запроса пустое' };
-
-  // Buffer / Uint8Array / любой объект с toString
-  if (typeof raw !== 'string') {
-    if (typeof raw === 'object' && raw.constructor && (raw.constructor.name === 'Buffer' || raw.constructor.name === 'Uint8Array')) {
-      raw = String(raw);
-    } else if (typeof raw === 'object' && !Array.isArray(raw)) {
-      // Vercel уже отдал объект — это валидное тело
-      return { ok: true, body: raw };
-    } else if (typeof raw === 'object' && Array.isArray(raw)) {
-      return { ok: false, code: 'json_object_required', detail: 'ожидался объект JSON' };
-    } else {
-      raw = String(raw);
-    }
-  }
-
-  const text = raw.trim();
-  if (!text) return { ok: false, code: 'bad_json', detail: 'тело запроса пустое' };
-
-  let parsed;
+async function parseRequestBody(request) {
+  let text = '';
   try {
-    parsed = JSON.parse(text);
+    text = await request.text();
   } catch (e) {
-    return { ok: false, code: 'bad_json', detail: 'не удалось разобрать JSON' };
+    return { ok: false, code: 'bad_json', detail: 'не удалось прочитать тело запроса' };
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, code: 'json_object_required', detail: 'ожидался объект JSON' };
+  if (!text || !text.trim()) return { ok: false, code: 'bad_json', detail: 'пустое тело запроса' };
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return { ok: false, code: 'bad_json', detail: 'ожидался объект JSON' };
+    return { ok: true, body: parsed };
+  } catch (e) {
+    return { ok: false, code: 'bad_json', detail: 'некорректный JSON в теле запроса' };
   }
-  return { ok: true, body: parsed };
 }
 
-/* ------------------------------------------------------------------- DeepSeek */
-
-/** Один запрос к DeepSeek. Никогда не бросает — возвращает {ok:false, kind, status}. */
-export async function askDeepSeek(messages, model, cfg, fetchImpl) {
-  const conf = cfg || getConfig({});
-  const doFetch = typeof fetchImpl === 'function'
-    ? fetchImpl
-    : (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
-
-  if (!doFetch) return { ok: false, kind: 'no_fetch' };
-  if (!conf.key) return { ok: false, kind: 'no_key' };
-
-  const supportsAbort = typeof AbortController === 'function';
-  const controller = supportsAbort ? new AbortController() : null;
+/* Запрос к DeepSeek. Никогда не бросает: возвращает {ok:false, code} вместо исключения. */
+async function askDeepSeek(messages, model, cfg) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timer = null;
-
+  if (controller) {
+    timer = setTimeout(() => { try { controller.abort(); } catch (e) { /* ignore */ } }, cfg.timeoutMs);
+  }
   try {
-    const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        if (controller) { try { controller.abort(); } catch (e) { /* ignore */ } }
-        const err = new Error('relay timeout');
-        err.__relayTimeout = true;
-        reject(err);
-      }, conf.timeoutMs);
-    });
-
-    const requestPromise = doFetch(conf.baseUrl, {
+    const res = await fetch(cfg.baseUrl, {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + conf.key,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cfg.key
       },
       body: JSON.stringify({
         model: model,
         messages: messages,
-        max_tokens: 200,
-        temperature: 0.85,
+        max_tokens: cfg.maxTokens,
+        temperature: cfg.temperature,
         stream: false
       }),
-      ...(controller ? { signal: controller.signal } : {})
+      signal: controller ? controller.signal : undefined
     });
 
-    const r = await Promise.race([requestPromise, timeoutPromise]);
-
-    if (!r || typeof r !== 'object') return { ok: false, kind: 'bad_response' };
-    if (!r.ok) {
-      let t = '';
-      try { t = String(await r.text()).slice(0, 300); } catch (e) { t = ''; }
-      console.error('[relay] deepseek error:', r.status, t);
-      return { ok: false, kind: 'http', status: Number(r.status) || 0, detail: t };
+    const raw = await res.text();
+    if (!res.ok) {
+      console.error('[relay] deepseek error:', res.status, raw.slice(0, 300));
+      return { ok: false, code: 'deepseek_' + res.status, status: res.status, detail: raw.slice(0, 200) };
     }
-
     let data = null;
     try {
-      const rawText = await r.text();
-      data = rawText ? JSON.parse(rawText) : null;
+      data = JSON.parse(raw);
     } catch (e) {
-      // DeepSeek (или прокси) вернул HTML/мусор — это не повод отдавать HTML дальше.
       console.error('[relay] deepseek returned non-json body');
-      return { ok: false, kind: 'bad_body' };
+      return { ok: false, code: 'deepseek_bad_response', detail: raw.slice(0, 200) };
     }
-
     const content = data && data.choices && data.choices[0] && data.choices[0].message
       ? data.choices[0].message.content
       : null;
-
-    if (typeof content !== 'string' || !content.trim()) {
-      console.error('[relay] deepseek empty content:', JSON.stringify(data).slice(0, 300));
-      return { ok: false, kind: 'empty' };
+    if (!content || !String(content).trim()) {
+      return { ok: false, code: 'deepseek_empty', detail: JSON.stringify(data).slice(0, 200) };
     }
-    return { ok: true, reply: content };
-  } catch (e) {
-    if (e && (e.__relayTimeout || e.name === 'AbortError')) return { ok: false, kind: 'timeout' };
-    console.error('[relay] deepseek fetch failed:', e);
-    return { ok: false, kind: 'network', detail: String(e && e.message || e).slice(0, 200) };
+    return { ok: true, reply: String(content).trim() };
+  } catch (err) {
+    const aborted = err && (err.name === 'AbortError' || err.code === 20);
+    console.error('[relay] deepseek fetch failed:', aborted ? 'timeout' : err && err.message);
+    return { ok: false, code: aborted ? 'deepseek_timeout' : 'deepseek_unreachable', detail: String(err && err.message || err).slice(0, 200) };
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-/* ------------------------------------------------------------------ prompty */
-
-/** Санитация истории: без пустых, без подряд одинаковых ролей, не заканчивается на user, максимум 15. */
-export function sanitizeHistory(history) {
+/* История: только user/assistant, без пустых, подряд идущие одинаковые роли склеиваем. */
+function sanitizeHistory(history) {
   const clean = [];
-  const src = Array.isArray(history) ? history : [];
-  for (const m of src) {
+  for (const m of history || []) {
     if (!m || typeof m.content !== 'string' || !m.content.trim()) continue;
-    const rawRole = m.role === 'bot' || m.role === 'ai' || m.role === 'model' || m.role === 'assistant' ? 'assistant' : m.role;
-    const role = rawRole === 'user' ? 'user' : (rawRole === 'assistant' ? 'assistant' : null);
-    if (!role) continue;
+    let role = m.role === 'bot' ? 'assistant' : m.role;
+    if (role !== 'user' && role !== 'assistant') continue;
     const prev = clean[clean.length - 1];
-    if (prev && prev.role === role) prev.content += '\n' + m.content.trim();
-    else clean.push({ role: role, content: m.content.trim() });
+    if (prev && prev.role === role) prev.content += '\n' + m.content;
+    else clean.push({ role: role, content: m.content });
   }
   while (clean.length && clean[clean.length - 1].role === 'user') clean.pop();
   return clean.slice(-15);
 }
 
-export function buildInitiativePrompt(state) {
-  const st = state && typeof state === 'object' ? state : {};
-  let now = '';
-  try {
-    now = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
-  } catch (e) {
-    now = new Date().toISOString();
+async function handleInitiative(body, cfg) {
+  const st = body.state || {};
+  const now = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
+  const sinceLastUser = st.lastUserMessageTime ? Math.round((Date.now() - st.lastUserMessageTime) / 60000) : 999;
+  const lastMsg = (st.messages || []).slice(-1)[0];
+  const prompt =
+    'Ты Маша, 16 лет, Красноярск, ты девушка Эдуарда. Сейчас: ' + now + '.\n' +
+    'Твоё состояние: ' + (st.currentState || 'calm') + '. Отношения: ' + (st.relationship || 80) + '/100.\n' +
+    'Он не писал: ' + sinceLastUser + ' мин. Он сейчас: ' + (st.userStatus || 'awake') + '.\n' +
+    'Последнее обсуждали: ' + String((lastMsg && lastMsg.content) || 'ничего').slice(0, 100) + '.\n' +
+    'Твоя прошлая мысль: ' + String(st.lastThought || 'ничего').slice(0, 100) + '.\n\n' +
+    'Хочешь написать ему прямо сейчас? Пиши коротко, 1-3 слова, как в переписке: без точки в конце, без эмодзи.\n' +
+    'Формат ответа ТОЛЬКО: "ХОЧУ: <текст>" или "НЕ ХОЧУ: <почему>".';
+
+  const out = await askDeepSeek([{ role: 'user', content: prompt }], cfg.textModel, cfg);
+  if (!out.ok) {
+    return { status: 200, data: Object.assign({ ok: false, initiative: false }, softError(out.code, 'не смогла придумать сообщение')) };
   }
-  const sinceLastUser = st.lastUserMessageTime ? Math.round((Date.now() - Number(st.lastUserMessageTime)) / 60000) : 999;
-  const messages = Array.isArray(st.messages) ? st.messages : [];
-  const lastMsg = messages.length ? messages[messages.length - 1] : null;
-  const lastText = lastMsg && typeof lastMsg.content === 'string' ? lastMsg.content.slice(0, 100) : 'ничего';
-
-  return 'Ты Маша, 17 лет, Красноярск. Сейчас: ' + now + '. Твоё состояние: ' + (st.currentState || 'calm') +
-    '. Он не писал: ' + sinceLastUser + ' мин. Он сейчас: ' + (st.userStatus || 'awake') +
-    '. Последнее обсуждали: ' + lastText + '.\n' +
-    'Хочешь написать ему прямо сейчас? Если да — 1 короткое предложение в твоём стиле (lowercase, без эмодзи). Если нет — почему.\n' +
-    'Формат ТОЛЬКО: "ХОЧУ: <текст>" или "НЕ ХОЧУ: <причина>".';
+  const line = out.reply.trim();
+  if (/^ХОЧУ\s*:/i.test(line)) {
+    return { status: 200, data: { ok: true, initiative: true, text: line.replace(/^ХОЧУ\s*:/i, '').trim() } };
+  }
+  if (/^НЕ\s*ХОЧУ\s*:/i.test(line)) {
+    return { status: 200, data: { ok: true, initiative: false, reason: line.replace(/^НЕ\s*ХОЧУ\s*:/i, '').trim() } };
+  }
+  // модель ответила не по формату — считаем, что не хочет
+  return { status: 200, data: { ok: true, initiative: false, reason: line.slice(0, 120) } };
 }
 
-export function buildThoughtPrompt(text, image, history, lastThought) {
-  const src = Array.isArray(history) ? history : [];
-  const hist = src.slice(-5).map((m) => {
-    const role = m && m.role === 'user' ? 'Он: ' : 'Ты: ';
-    const content = m && typeof m.content === 'string' ? m.content : '';
-    return role + content;
-  }).join('\n');
+async function handleChat(body, cfg) {
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const image = typeof body.image === 'string' && body.image ? body.image : '';
+  if (!text && !image) {
+    return { status: 400, data: softError('empty_message', 'в запросе нет ни текста, ни фото') };
+  }
 
-  return 'Ты Маша. Контекст:\n' + hist +
-    '\nПользователь написал: ' + (text || (image ? '[фото]' : '[пусто]')) +
-    '\nТвоя прошлая мысль: ' + (lastThought || 'ничего') +
-    '\nНапиши ОДНУ мысль до 15 слов про себя, lowercase, не для пользователя.';
-}
+  const history = sanitizeHistory(body.history);
 
-export function buildUserContent(text, image) {
+  /* Внутренний монолог: одна короткая мысль, чтобы ответ был со своим подтекстом. */
+  let thought = '';
+  if (cfg.thoughts) {
+    const hist = history.slice(-5).map(m => (m.role === 'user' ? 'Он: ' : 'Ты: ') + m.content).join('\n');
+    const tp = 'Ты Маша, девушка Эдуарда. Контекст:\n' + (hist || 'нет') +
+      '\nОн написал: ' + (text || '[фото]') +
+      '\nТвоя прошлая мысль: ' + String(body.lastThought || 'ничего').slice(0, 80) +
+      '\nНапиши ОДНУ мысль до 15 слов про себя, lowercase, не для него.';
+    const outThought = await askDeepSeek([{ role: 'user', content: tp }], cfg.textModel, cfg);
+    if (outThought.ok) thought = outThought.reply.slice(0, 120);
+  }
+
+  let userContent;
   if (image) {
-    return [
+    userContent = [
       { type: 'text', text: text || 'Отреагируй на это фото.' },
       { type: 'image_url', image_url: { url: image } }
     ];
+  } else {
+    userContent = text;
   }
-  return text || '';
-}
 
-export function buildSystemMessage(systemPrompt, thought) {
-  return {
+  const systemMsg = {
     role: 'system',
-    content: String(systemPrompt || '') + '\n\nТы сейчас думаешь: ' + (thought || 'ничего особого')
+    content: String(body.systemPrompt || 'Ты Маша, девушка Эдуарда.') +
+      '\n\nТы сейчас думаешь: ' + (thought || 'ничего особого')
   };
-}
 
-/* ------------------------------------------------------------- core handler */
-
-function parseInitiative(reply) {
-  const r = String(reply || '').trim();
-  if (r.indexOf('ХОЧУ:') === 0) return { initiative: true, text: r.slice('ХОЧУ:'.length).trim() };
-  if (r.indexOf('НЕ ХОЧУ:') === 0) return { initiative: false, reason: r.slice('НЕ ХОЧУ:'.length).trim() };
-  return null;
-}
-
-/**
- * Вся логика релея: (body, cfg) -> {status, data}.
- * Ничего не знает про транспорт, поэтому используется и в Vercel, и в Cloudflare Worker.
- */
-export async function processRequest(body, cfg, fetchImpl) {
-  const conf = cfg || getConfig({});
-  const reqBody = body && typeof body === 'object' ? body : {};
-  const text = reqBody.text;
-  const image = reqBody.image;
-  const systemPrompt = reqBody.systemPrompt;
-  const history = reqBody.history;
-  const lastThought = reqBody.lastThought;
-  const checkInitiative = reqBody.checkInitiative;
-
-  /* === ИНИЦИАТИВА === */
-  if (checkInitiative) {
-    const out = await askDeepSeek(
-      [{ role: 'user', content: buildInitiativePrompt(reqBody.state) }],
-      conf.textModel, conf, fetchImpl
-    );
-
-    if (!out.ok) {
-      const e = errorFromFailure(out);
-      return {
-        status: 200,
-        data: Object.assign({ ok: false, initiative: false, text: '', reply: SOFT_REPLY }, e)
-      };
-    }
-
-    const parsed = parseInitiative(out.reply);
-    const result = parsed || { initiative: false, reason: String(out.reply).slice(0, 200) };
-    return { status: 200, data: Object.assign({ ok: true }, result) };
+  const model = image ? cfg.visionModel : cfg.textModel;
+  let out = await askDeepSeek([systemMsg].concat(history, [{ role: 'user', content: userContent }]), model, cfg);
+  if (!out.ok && history.length) {
+    console.error('[relay] retry without history, reason:', out.code);
+    out = await askDeepSeek([systemMsg, { role: 'user', content: userContent }], model, cfg);
   }
-
-  /* === ВНУТРЕННИЙ МОНОЛОГ (можно выключить: DEEPSEEK_THOUGHTS=0) === */
-  let thought = '';
-  if (conf.thoughts && (text || image)) {
-    const out = await askDeepSeek(
-      [{ role: 'user', content: buildThoughtPrompt(text, image, history, lastThought) }],
-      conf.textModel, conf, fetchImpl
-    );
-    if (out.ok) thought = String(out.reply).slice(0, 120).trim();
-  }
-
-  /* === ЗАПРОС К ЧАТУ: с историей, при неудаче — без истории === */
-  const cleanHistory = sanitizeHistory(history);
-  const userContent = buildUserContent(text, image);
-  const model = image ? conf.visionModel : conf.textModel;
-  const systemMsg = buildSystemMessage(systemPrompt, thought);
-  const fullMessages = [systemMsg].concat(cleanHistory, [{ role: 'user', content: userContent }]);
-
-  let out = await askDeepSeek(fullMessages, model, conf, fetchImpl);
-
-  if (!out.ok && cleanHistory.length) {
-    console.error('[relay] retry without history, reason:', out.kind, out.status || '');
-    // Если и без истории не вышло — отдаём последнюю ошибку (по ней строится код deepseek_<status>).
-    out = await askDeepSeek([systemMsg, { role: 'user', content: userContent }], model, conf, fetchImpl);
-  }
-
   if (!out.ok) {
-    const e = errorFromFailure(out);
-    return { status: 200, data: Object.assign({ ok: false, thought: thought, reply: SOFT_REPLY }, e) };
+    return { status: 200, data: Object.assign({ reply: SOFT_REPLY, thought: thought }, softError(out.code, 'AI не ответил')) };
   }
-
-  return {
-    status: 200,
-    data: { ok: true, reply: String(out.reply), thought: thought }
-  };
+  return { status: 200, data: { ok: true, reply: out.reply, thought: thought, model: model } };
 }
 
-/** GET /api/relay — диагностика: открыл в браузере и видно, что релей жив. */
-export function diagnostics(cfg) {
-  const conf = cfg || getConfig({});
+function diagnostics(cfg, host) {
   return {
     ok: true,
     service: SERVICE,
     version: VERSION,
-    hasKey: conf.hasKey,
-    models: { text: conf.textModel, vision: conf.visionModel },
-    timeoutMs: conf.timeoutMs,
-    thoughts: conf.thoughts,
+    host: host || 'cloudflare-worker',
+    hasKey: !!cfg.key,
+    models: { text: cfg.textModel, vision: cfg.visionModel },
+    timeoutMs: cfg.timeoutMs,
+    thoughts: cfg.thoughts,
     time: new Date().toISOString(),
-    hint: conf.hasKey
+    hint: cfg.key
       ? 'релей жив, ключ на месте. отправь POST с {text, history, systemPrompt}'
-      : 'релей жив, но нет переменной окружения DEEPSEEK_API_KEY — добавь её в настройках хостинга'
+      : 'релей жив, но не задан секрет DEEPSEEK_API_KEY (Settings → Variables and Secrets)'
   };
 }
 
-/* ------------------------------------------------------------ vercel handler */
+async function processRequest(body, cfg) {
+  // Проверка «жив ли релей» через POST. Нужна там, где по этому адресу отдаётся
+  // ещё и сайт (Cloudflare Workers + статика): GET перехватывает страница-заглушка,
+  // а POST всегда доходит до кода.
+  if (body && body.health) {
+    return { status: 200, data: diagnostics(cfg, 'post-health') };
+  }
+  if (body && body.checkInitiative) return handleInitiative(body, cfg);
+  return handleChat(body, cfg);
+}
 
+const __relay = {
+  async fetch(request, env, ctx) {
+    const cfg = configFrom(env);
+    const method = request.method.toUpperCase();
+    const url = new URL(request.url);
+
+    if (method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS });
+    }
+
+    if (method === 'GET') {
+      return json(200, diagnostics(cfg, 'cloudflare-worker'));
+    }
+
+    if (method !== 'POST') {
+      return json(405, softError('method_not_allowed', 'поддерживаются только GET, POST и OPTIONS'));
+    }
+
+    const parsed = await parseRequestBody(request);
+    if (!parsed.ok) return json(400, softError(parsed.code, parsed.detail));
+
+    if (!cfg.key) {
+      return json(500, softError('no_api_key', 'в воркере не настроен секрет DEEPSEEK_API_KEY'));
+    }
+
+    try {
+      const result = await processRequest(parsed.body, cfg);
+      return json(result.status, result.data);
+    } catch (e) {
+      console.error('[relay] unhandled error:', e);
+      return json(500, softError('server_error', 'внутренняя ошибка релея'));
+    }
+  }
+};
+
+/* Экспорт для тестов и адаптеров (Deno/Netlify/Vercel используют тот же код). */
+
+
+/* ------------------------------------------------------------------
+   Vercel serverless. Файл лежит как api/relay.js → адрес /api/relay
+     1) Vercel → Settings → Environment Variables → DEEPSEEK_API_KEY = ключ
+     2) Redeploy
+     3) https://проект.vercel.app/api/relay должен вернуть {"ok":true,...,"hasKey":true}
+   ------------------------------------------------------------------ */
 export default async function handler(req, res) {
-  const method = String((req && req.method) || 'GET').toUpperCase();
-  const cfg = getConfig(process.env);
+  const method = (req.method || 'GET').toUpperCase();
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Cache-Control': 'no-store'
+  };
 
   if (method === 'OPTIONS') {
-    try {
-      if (res && typeof res.setHeader === 'function') {
-        for (const k of Object.keys(CORS_HEADERS)) res.setHeader(k, CORS_HEADERS[k]);
-      }
-    } catch (e) { console.error('[relay] options headers failed:', e); }
-    try {
-      if (res && typeof res.status === 'function') return res.status(204).end();
-      if (res && typeof res.writeHead === 'function') { res.writeHead(204, CORS_HEADERS); return res.end(); }
-    } catch (e) { console.error('[relay] options end failed:', e); }
-    return undefined;
+    Object.keys(headers).forEach(function (k) { res.setHeader(k, headers[k]); });
+    return res.status(204).end();
   }
 
-  if (method === 'GET' || method === 'HEAD') {
-    return sendJson(res, 200, diagnostics(cfg));
-  }
+  const host = (req.headers && (req.headers.host || req.headers.Host)) || 'relay.local';
+  const url = 'https://' + host + (req.url || '/');
 
-  if (method !== 'POST') {
-    return sendJson(res, 405, softError('method_not_allowed', 'поддерживаются только GET, POST и OPTIONS'));
-  }
-
-  const parsed = await parseRequestBody(req);
-  if (!parsed.ok) {
-    return sendJson(res, 400, softError(parsed.code, parsed.detail || 'некорректный JSON в теле запроса'));
-  }
-
-  if (!cfg.hasKey) {
-    return sendJson(res, 500, softError('no_api_key', 'на сервере не настроен ключ DEEPSEEK_API_KEY'));
+  let body;
+  if (method !== 'GET' && method !== 'HEAD') {
+    if (typeof req.body === 'string') body = req.body;
+    else if (req.body && typeof req.body === 'object') body = JSON.stringify(req.body);
+    else {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      body = Buffer.concat(chunks).toString('utf8');
+    }
   }
 
   try {
-    const { status, data } = await processRequest(parsed.body, cfg);
-    return sendJson(res, status, data);
+    const request = new Request(url, { method: method, headers: req.headers || {}, body: body });
+    const response = await __relay.fetch(request, process.env, {});
+    res.status(response.status);
+    response.headers.forEach(function (value, key) { res.setHeader(key, value); });
+    res.send(await response.text());
   } catch (e) {
-    // Сюда попадать не должны, но даже тогда наружу уходит только JSON без стектрейса.
-    console.error('[relay] unhandled error:', e);
-    return sendJson(res, 500, softError('server_error', 'внутренняя ошибка релея'));
+    Object.keys(headers).forEach(function (k) { res.setHeader(k, headers[k]); });
+    res.status(500).send(JSON.stringify({
+      ok: false,
+      error: 'server_error',
+      message: 'внутренняя ошибка релея',
+      reply: 'блин, у меня чето связь пропала, давай еще раз?'
+    }));
   }
 }

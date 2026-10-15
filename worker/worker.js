@@ -1,104 +1,79 @@
 /**
- * masha-fixed / worker/worker.js
- * Cloudflare Worker — РЕЗЕРВНЫЙ хост релея «Маши».
+ * masha-relay — релей к DeepSeek для приложения «Маша».
  *
- * Тот же контракт, что и у api/relay.js (Vercel): всегда валидный JSON,
- * никогда HTML и никогда стектрейс.
+ * Контракт: ВСЕГДА валидный JSON, никогда HTML и никогда стектрейс.
  *
- *   GET  /  |  GET /health  -> 200 {ok:true, service, version, hasKey, models, ...}
+ *   GET  /  |  GET /health  -> 200 {ok:true, service, version, hasKey, models, hint}
  *   POST /  (и любой путь)  -> 200 {ok:true, reply, thought}
- *                           -> 200 {ok:true, initiative, text|reason}
- *                           -> 200 {ok:false, error, message, reply}
+ *                           -> 200 {ok:true, initiative:true, text} | {ok:true, initiative:false, reason}
+ *                           -> 200 {ok:false, error, message, reply}   (мягкая ошибка)
  *                           -> 400 {ok:false, error:'bad_json', ...}
  *                           -> 500 {ok:false, error:'no_api_key', ...}
  *   OPTIONS (любой путь)    -> 204 + CORS
  *
- * Секрет: wrangler secret put DEEPSEEK_API_KEY
+ * Настройки (секреты/переменные окружения):
+ *   DEEPSEEK_API_KEY      — обязательно (или алиас DEEPSEEK_KEY)
+ *   DEEPSEEK_TEXT_MODEL   — по умолчанию deepseek-flash (доступны deepseek-chat, deepseek-reasoner, deepseek-v4-pro)
+ *   DEEPSEEK_VISION_MODEL — по умолчанию deepseek-flash (модели deepseek-v4.1-flash в API НЕТ)
+ *   DEEPSEEK_BASE_URL     — по умолчанию https://api.deepseek.com/chat/completions
+ *   DEEPSEEK_THOUGHTS     — 0, чтобы отключить внутренний монолог (быстрее)
+ *   RELAY_TIMEOUT_MS      — по умолчанию 30000
+ *
+ * Локально:  $env:DEEPSEEK_API_KEY="..."; node worker/local-relay.mjs
+ * Cloudflare: вставить этот файл в дашборде (Edit code) → Deploy → Settings → Variables.
  */
 
 const VERSION = '2.0.0';
 const SERVICE = 'masha-relay';
 
-/* Мягкая фраза Маши (lowercase, без эмодзи). */
-const SOFT_REPLY = 'блин, у меня чето связь пропала, давай еще раз?';
-
-const CORS_HEADERS = {
+const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Max-Age': '86400',
-  'Cache-Control': 'no-store'
+  'Access-Control-Allow-Private-Network': 'true',
+  'Access-Control-Max-Age': '86400'
 };
 
-const TIMEOUT_DEFAULT_MS = 30000;
-const TIMEOUT_MAX_MS = 120000;
+/* Мягкая фраза Маши: в её стиле, lowercase, без эмодзи. */
+const SOFT_REPLY = 'блин, у меня чето связь пропала, давай еще раз?';
 
-/* ------------------------------------------------------------------ helpers */
-
-/** Единственная точка отправки JSON в воркере. Заголовки ставятся ровно один раз. */
-function json(status, obj) {
-  return new Response(JSON.stringify(obj === undefined ? {} : obj), {
+function json(status, data) {
+  return new Response(JSON.stringify(data), {
     status: status,
-    headers: Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, CORS_HEADERS)
+    headers: Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, CORS)
   });
 }
 
-function softError(error, message, reply) {
+function softError(code, message, status) {
   return {
     ok: false,
-    error: String(error || 'server_error'),
-    message: String(message || 'что-то пошло не так на сервере'),
-    reply: typeof reply === 'string' && reply.trim() ? reply : SOFT_REPLY
+    error: code,
+    message: message || 'что-то сломалось на сервере',
+    reply: SOFT_REPLY
   };
 }
 
-function errorFromFailure(failure) {
-  const f = failure || {};
-  if (f.status && Number.isFinite(Number(f.status))) {
-    return { error: 'deepseek_' + Number(f.status), message: 'deepseek ответил ошибкой ' + Number(f.status) + ', попробуем еще раз' };
-  }
-  if (f.kind === 'timeout') return { error: 'deepseek_timeout', message: 'deepseek не ответил вовремя, попробуем еще раз' };
-  if (f.kind === 'bad_body') return { error: 'deepseek_bad_response', message: 'deepseek ответил не тем, что мы ждали' };
-  if (f.kind === 'empty') return { error: 'deepseek_empty', message: 'deepseek ответил пустотой, попробуем еще раз' };
-  return { error: 'deepseek_unreachable', message: 'не получилось связаться с deepseek, попробуем еще раз' };
+function num(v, def) {
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : def;
 }
 
-function readEnv(env, name) {
-  if (!env) return undefined;
-  try {
-    const v = env[name];
-    return v === undefined || v === null ? undefined : v;
-  } catch (e) {
-    return undefined;
-  }
-}
-
-function clean(v) {
-  return typeof v === 'string' ? v.trim() : '';
-}
-
-function getConfig(env) {
-  const src = env && typeof env === 'object' ? env : {};
-  const key = clean(readEnv(src, 'DEEPSEEK_API_KEY')) || clean(readEnv(src, 'DEEPSEEK_KEY'));
-  const parsedTimeout = Number(clean(readEnv(src, 'RELAY_TIMEOUT_MS')));
-  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0
-    ? Math.min(parsedTimeout, TIMEOUT_MAX_MS)
-    : TIMEOUT_DEFAULT_MS;
-  const thoughtsFlag = clean(readEnv(src, 'DEEPSEEK_THOUGHTS')).toLowerCase();
+function configFrom(env) {
+  const e = env || {};
   return {
-    key: key,
-    hasKey: !!key,
-    baseUrl: clean(readEnv(src, 'DEEPSEEK_BASE_URL')) || 'https://api.deepseek.com/chat/completions',
-    textModel: clean(readEnv(src, 'DEEPSEEK_TEXT_MODEL')) || 'deepseek-flash',
-    visionModel: clean(readEnv(src, 'DEEPSEEK_VISION_MODEL')) || 'deepseek-v4.1-flash',
-    timeoutMs: timeoutMs,
-    thoughts: !(thoughtsFlag === '0' || thoughtsFlag === 'false' || thoughtsFlag === 'off' || thoughtsFlag === 'no')
+    key: e.DEEPSEEK_API_KEY || e.DEEPSEEK_KEY || '',
+    textModel: e.DEEPSEEK_TEXT_MODEL || 'deepseek-flash',
+    // deepseek-v4.1-flash в API НЕ существует (проверено запросом: поддерживаются
+    // deepseek-flash и deepseek-v4-pro), поэтому для фото тоже используем flash.
+    visionModel: e.DEEPSEEK_VISION_MODEL || 'deepseek-flash',
+    baseUrl: e.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions',
+    thoughts: String(e.DEEPSEEK_THOUGHTS === undefined ? '1' : e.DEEPSEEK_THOUGHTS) !== '0',
+    timeoutMs: num(e.RELAY_TIMEOUT_MS, 30000),
+    maxTokens: num(e.RELAY_MAX_TOKENS, 350),
+    temperature: 0.9
   };
 }
 
-/* ------------------------------------------------------------ request body */
-
-/** Тело запроса -> {ok:true, body} | {ok:false, code, detail}. */
 async function parseRequestBody(request) {
   let text = '';
   try {
@@ -106,265 +81,201 @@ async function parseRequestBody(request) {
   } catch (e) {
     return { ok: false, code: 'bad_json', detail: 'не удалось прочитать тело запроса' };
   }
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return { ok: false, code: 'bad_json', detail: 'тело запроса пустое' };
-
-  let parsed = null;
+  if (!text || !text.trim()) return { ok: false, code: 'bad_json', detail: 'пустое тело запроса' };
   try {
-    parsed = JSON.parse(trimmed);
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return { ok: false, code: 'bad_json', detail: 'ожидался объект JSON' };
+    return { ok: true, body: parsed };
   } catch (e) {
-    return { ok: false, code: 'bad_json', detail: 'не удалось разобрать JSON' };
+    return { ok: false, code: 'bad_json', detail: 'некорректный JSON в теле запроса' };
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, code: 'json_object_required', detail: 'ожидался объект JSON' };
-  }
-  return { ok: true, body: parsed };
 }
 
-/* ------------------------------------------------------------------ DeepSeek */
-
-/** Один запрос к DeepSeek. Никогда не бросает. */
+/* Запрос к DeepSeek. Никогда не бросает: возвращает {ok:false, code} вместо исключения. */
 async function askDeepSeek(messages, model, cfg) {
-  const conf = cfg || getConfig({});
-  if (typeof fetch !== 'function') return { ok: false, kind: 'no_fetch' };
-  if (!conf.key) return { ok: false, kind: 'no_key' };
-
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timer = null;
-
+  if (controller) {
+    timer = setTimeout(() => { try { controller.abort(); } catch (e) { /* ignore */ } }, cfg.timeoutMs);
+  }
   try {
-    const timeoutPromise = new Promise(function (_, reject) {
-      timer = setTimeout(function () {
-        if (controller) { try { controller.abort(); } catch (e) { /* ignore */ } }
-        const err = new Error('relay timeout');
-        err.__relayTimeout = true;
-        reject(err);
-      }, conf.timeoutMs);
-    });
-
-    const requestPromise = fetch(conf.baseUrl, {
+    const res = await fetch(cfg.baseUrl, {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + conf.key,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cfg.key
       },
       body: JSON.stringify({
         model: model,
         messages: messages,
-        max_tokens: 200,
-        temperature: 0.85,
+        max_tokens: cfg.maxTokens,
+        temperature: cfg.temperature,
         stream: false
       }),
       signal: controller ? controller.signal : undefined
     });
 
-    const r = await Promise.race([requestPromise, timeoutPromise]);
-    if (!r || typeof r !== 'object') return { ok: false, kind: 'bad_response' };
-
-    if (!r.ok) {
-      let detail = '';
-      try { detail = String(await r.text()).slice(0, 300); } catch (e) { detail = ''; }
-      console.error('[worker] deepseek error:', r.status, detail);
-      return { ok: false, kind: 'http', status: Number(r.status) || 0, detail: detail };
+    const raw = await res.text();
+    if (!res.ok) {
+      console.error('[relay] deepseek error:', res.status, raw.slice(0, 300));
+      return { ok: false, code: 'deepseek_' + res.status, status: res.status, detail: raw.slice(0, 200) };
     }
-
     let data = null;
     try {
-      const raw = await r.text();
-      data = raw ? JSON.parse(raw) : null;
+      data = JSON.parse(raw);
     } catch (e) {
-      console.error('[worker] deepseek returned non-json body');
-      return { ok: false, kind: 'bad_body' };
+      console.error('[relay] deepseek returned non-json body');
+      return { ok: false, code: 'deepseek_bad_response', detail: raw.slice(0, 200) };
     }
-
     const content = data && data.choices && data.choices[0] && data.choices[0].message
       ? data.choices[0].message.content
       : null;
-
-    if (typeof content !== 'string' || !content.trim()) {
-      console.error('[worker] deepseek empty content:', JSON.stringify(data).slice(0, 300));
-      return { ok: false, kind: 'empty' };
+    if (!content || !String(content).trim()) {
+      return { ok: false, code: 'deepseek_empty', detail: JSON.stringify(data).slice(0, 200) };
     }
-    return { ok: true, reply: content };
-  } catch (e) {
-    if (e && (e.__relayTimeout || e.name === 'AbortError')) return { ok: false, kind: 'timeout' };
-    console.error('[worker] deepseek fetch failed:', e);
-    return { ok: false, kind: 'network', detail: String((e && e.message) || e).slice(0, 200) };
+    return { ok: true, reply: String(content).trim() };
+  } catch (err) {
+    const aborted = err && (err.name === 'AbortError' || err.code === 20);
+    console.error('[relay] deepseek fetch failed:', aborted ? 'timeout' : err && err.message);
+    return { ok: false, code: aborted ? 'deepseek_timeout' : 'deepseek_unreachable', detail: String(err && err.message || err).slice(0, 200) };
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-/* ------------------------------------------------------------------ prompty */
-
+/* История: только user/assistant, без пустых, подряд идущие одинаковые роли склеиваем. */
 function sanitizeHistory(history) {
-  const result = [];
-  const src = Array.isArray(history) ? history : [];
-  for (let i = 0; i < src.length; i++) {
-    const m = src[i];
+  const clean = [];
+  for (const m of history || []) {
     if (!m || typeof m.content !== 'string' || !m.content.trim()) continue;
-    const rawRole = (m.role === 'bot' || m.role === 'ai' || m.role === 'model' || m.role === 'assistant') ? 'assistant' : m.role;
-    const role = rawRole === 'user' ? 'user' : (rawRole === 'assistant' ? 'assistant' : null);
-    if (!role) continue;
-    const prev = result[result.length - 1];
-    if (prev && prev.role === role) prev.content += '\n' + m.content.trim();
-    else result.push({ role: role, content: m.content.trim() });
+    let role = m.role === 'bot' ? 'assistant' : m.role;
+    if (role !== 'user' && role !== 'assistant') continue;
+    const prev = clean[clean.length - 1];
+    if (prev && prev.role === role) prev.content += '\n' + m.content;
+    else clean.push({ role: role, content: m.content });
   }
-  while (result.length && result[result.length - 1].role === 'user') result.pop();
-  return result.slice(-15);
+  while (clean.length && clean[clean.length - 1].role === 'user') clean.pop();
+  return clean.slice(-15);
 }
 
-function buildInitiativePrompt(state) {
-  const st = state && typeof state === 'object' ? state : {};
-  let now = '';
-  try {
-    now = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
-  } catch (e) {
-    now = new Date().toISOString();
+async function handleInitiative(body, cfg) {
+  const st = body.state || {};
+  const now = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
+  const sinceLastUser = st.lastUserMessageTime ? Math.round((Date.now() - st.lastUserMessageTime) / 60000) : 999;
+  const lastMsg = (st.messages || []).slice(-1)[0];
+  const prompt =
+    'Ты Маша, 16 лет, Красноярск, ты девушка Эдуарда. Сейчас: ' + now + '.\n' +
+    'Твоё состояние: ' + (st.currentState || 'calm') + '. Отношения: ' + (st.relationship || 80) + '/100.\n' +
+    'Он не писал: ' + sinceLastUser + ' мин. Он сейчас: ' + (st.userStatus || 'awake') + '.\n' +
+    'Последнее обсуждали: ' + String((lastMsg && lastMsg.content) || 'ничего').slice(0, 100) + '.\n' +
+    'Твоя прошлая мысль: ' + String(st.lastThought || 'ничего').slice(0, 100) + '.\n\n' +
+    'Хочешь написать ему прямо сейчас? Пиши коротко, 1-3 слова, как в переписке: без точки в конце, без эмодзи.\n' +
+    'Формат ответа ТОЛЬКО: "ХОЧУ: <текст>" или "НЕ ХОЧУ: <почему>".';
+
+  const out = await askDeepSeek([{ role: 'user', content: prompt }], cfg.textModel, cfg);
+  if (!out.ok) {
+    return { status: 200, data: Object.assign({ ok: false, initiative: false }, softError(out.code, 'не смогла придумать сообщение')) };
   }
-  const sinceLastUser = st.lastUserMessageTime ? Math.round((Date.now() - Number(st.lastUserMessageTime)) / 60000) : 999;
-  const messages = Array.isArray(st.messages) ? st.messages : [];
-  const lastMsg = messages.length ? messages[messages.length - 1] : null;
-  const lastText = lastMsg && typeof lastMsg.content === 'string' ? lastMsg.content.slice(0, 100) : 'ничего';
-
-  return 'Ты Маша, 17 лет, Красноярск. Сейчас: ' + now + '. Твоё состояние: ' + (st.currentState || 'calm') +
-    '. Он не писал: ' + sinceLastUser + ' мин. Он сейчас: ' + (st.userStatus || 'awake') +
-    '. Последнее обсуждали: ' + lastText + '.\n' +
-    'Хочешь написать ему прямо сейчас? Если да — 1 короткое предложение в твоём стиле (lowercase, без эмодзи). Если нет — почему.\n' +
-    'Формат ТОЛЬКО: "ХОЧУ: <текст>" или "НЕ ХОЧУ: <причина>".';
+  const line = out.reply.trim();
+  if (/^ХОЧУ\s*:/i.test(line)) {
+    return { status: 200, data: { ok: true, initiative: true, text: line.replace(/^ХОЧУ\s*:/i, '').trim() } };
+  }
+  if (/^НЕ\s*ХОЧУ\s*:/i.test(line)) {
+    return { status: 200, data: { ok: true, initiative: false, reason: line.replace(/^НЕ\s*ХОЧУ\s*:/i, '').trim() } };
+  }
+  // модель ответила не по формату — считаем, что не хочет
+  return { status: 200, data: { ok: true, initiative: false, reason: line.slice(0, 120) } };
 }
 
-function buildThoughtPrompt(text, image, history, lastThought) {
-  const src = Array.isArray(history) ? history : [];
-  const hist = src.slice(-5).map(function (m) {
-    const role = m && m.role === 'user' ? 'Он: ' : 'Ты: ';
-    const content = m && typeof m.content === 'string' ? m.content : '';
-    return role + content;
-  }).join('\n');
+async function handleChat(body, cfg) {
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const image = typeof body.image === 'string' && body.image ? body.image : '';
+  if (!text && !image) {
+    return { status: 400, data: softError('empty_message', 'в запросе нет ни текста, ни фото') };
+  }
 
-  return 'Ты Маша. Контекст:\n' + hist +
-    '\nПользователь написал: ' + (text || (image ? '[фото]' : '[пусто]')) +
-    '\nТвоя прошлая мысль: ' + (lastThought || 'ничего') +
-    '\nНапиши ОДНУ мысль до 15 слов про себя, lowercase, не для пользователя.';
-}
+  const history = sanitizeHistory(body.history);
 
-function buildUserContent(text, image) {
+  /* Внутренний монолог: одна короткая мысль, чтобы ответ был со своим подтекстом. */
+  let thought = '';
+  if (cfg.thoughts) {
+    const hist = history.slice(-5).map(m => (m.role === 'user' ? 'Он: ' : 'Ты: ') + m.content).join('\n');
+    const tp = 'Ты Маша, девушка Эдуарда. Контекст:\n' + (hist || 'нет') +
+      '\nОн написал: ' + (text || '[фото]') +
+      '\nТвоя прошлая мысль: ' + String(body.lastThought || 'ничего').slice(0, 80) +
+      '\nНапиши ОДНУ мысль до 15 слов про себя, lowercase, не для него.';
+    const outThought = await askDeepSeek([{ role: 'user', content: tp }], cfg.textModel, cfg);
+    if (outThought.ok) thought = outThought.reply.slice(0, 120);
+  }
+
+  let userContent;
   if (image) {
-    return [
+    userContent = [
       { type: 'text', text: text || 'Отреагируй на это фото.' },
       { type: 'image_url', image_url: { url: image } }
     ];
+  } else {
+    userContent = text;
   }
-  return text || '';
-}
 
-function buildSystemMessage(systemPrompt, thought) {
-  return {
+  const systemMsg = {
     role: 'system',
-    content: String(systemPrompt || '') + '\n\nТы сейчас думаешь: ' + (thought || 'ничего особого')
+    content: String(body.systemPrompt || 'Ты Маша, девушка Эдуарда.') +
+      '\n\nТы сейчас думаешь: ' + (thought || 'ничего особого')
   };
-}
 
-function parseInitiative(reply) {
-  const r = String(reply || '').trim();
-  if (r.indexOf('ХОЧУ:') === 0) return { initiative: true, text: r.slice('ХОЧУ:'.length).trim() };
-  if (r.indexOf('НЕ ХОЧУ:') === 0) return { initiative: false, reason: r.slice('НЕ ХОЧУ:'.length).trim() };
-  return null;
-}
-
-/* ------------------------------------------------------------- core handler */
-
-async function processRequest(body, cfg) {
-  const conf = cfg || getConfig({});
-  const reqBody = body && typeof body === 'object' ? body : {};
-  const text = reqBody.text;
-  const image = reqBody.image;
-  const systemPrompt = reqBody.systemPrompt;
-  const history = reqBody.history;
-  const lastThought = reqBody.lastThought;
-
-  /* === ИНИЦИАТИВА === */
-  if (reqBody.checkInitiative) {
-    const out = await askDeepSeek([{ role: 'user', content: buildInitiativePrompt(reqBody.state) }], conf.textModel, conf);
-
-    if (!out.ok) {
-      const e = errorFromFailure(out);
-      return { status: 200, data: Object.assign({ ok: false, initiative: false, text: '', reply: SOFT_REPLY }, e) };
-    }
-
-    const parsed = parseInitiative(out.reply);
-    const result = parsed || { initiative: false, reason: String(out.reply).slice(0, 200) };
-    return { status: 200, data: Object.assign({ ok: true }, result) };
+  const model = image ? cfg.visionModel : cfg.textModel;
+  let out = await askDeepSeek([systemMsg].concat(history, [{ role: 'user', content: userContent }]), model, cfg);
+  if (!out.ok && history.length) {
+    console.error('[relay] retry without history, reason:', out.code);
+    out = await askDeepSeek([systemMsg, { role: 'user', content: userContent }], model, cfg);
   }
-
-  /* === ВНУТРЕННИЙ МОНОЛОГ === */
-  let thought = '';
-  if (conf.thoughts && (text || image)) {
-    const out = await askDeepSeek(
-      [{ role: 'user', content: buildThoughtPrompt(text, image, history, lastThought) }],
-      conf.textModel, conf
-    );
-    if (out.ok) thought = String(out.reply).slice(0, 120).trim();
-  }
-
-  /* === ЧАТ: с историей, при неудаче — без истории === */
-  const cleanHistory = sanitizeHistory(history);
-  const userContent = buildUserContent(text, image);
-  const model = image ? conf.visionModel : conf.textModel;
-  const systemMsg = buildSystemMessage(systemPrompt, thought);
-  const fullMessages = [systemMsg].concat(cleanHistory, [{ role: 'user', content: userContent }]);
-
-  let out = await askDeepSeek(fullMessages, model, conf);
-  if (!out.ok && cleanHistory.length) {
-    console.error('[worker] retry without history, reason:', out.kind, out.status || '');
-    out = await askDeepSeek([systemMsg, { role: 'user', content: userContent }], model, conf);
-  }
-
   if (!out.ok) {
-    const e = errorFromFailure(out);
-    return { status: 200, data: Object.assign({ ok: false, thought: thought, reply: SOFT_REPLY }, e) };
+    return { status: 200, data: Object.assign({ reply: SOFT_REPLY, thought: thought }, softError(out.code, 'AI не ответил')) };
   }
-
-  return { status: 200, data: { ok: true, reply: String(out.reply), thought: thought } };
+  return { status: 200, data: { ok: true, reply: out.reply, thought: thought, model: model } };
 }
 
-function diagnostics(cfg) {
-  const conf = cfg || getConfig({});
+function diagnostics(cfg, host) {
   return {
     ok: true,
     service: SERVICE,
     version: VERSION,
-    host: 'cloudflare-worker',
-    hasKey: conf.hasKey,
-    models: { text: conf.textModel, vision: conf.visionModel },
-    timeoutMs: conf.timeoutMs,
-    thoughts: conf.thoughts,
+    host: host || 'cloudflare-worker',
+    hasKey: !!cfg.key,
+    models: { text: cfg.textModel, vision: cfg.visionModel },
+    timeoutMs: cfg.timeoutMs,
+    thoughts: cfg.thoughts,
     time: new Date().toISOString(),
-    hint: conf.hasKey
-      ? 'воркер жив, ключ на месте. отправь POST с {text, history, systemPrompt}'
-      : 'воркер жив, но нет секрета DEEPSEEK_API_KEY — wrangler secret put DEEPSEEK_API_KEY'
+    hint: cfg.key
+      ? 'релей жив, ключ на месте. отправь POST с {text, history, systemPrompt}'
+      : 'релей жив, но не задан секрет DEEPSEEK_API_KEY (Settings → Variables and Secrets)'
   };
 }
 
-/* -------------------------------------------------------------------- entry */
+async function processRequest(body, cfg) {
+  // Проверка «жив ли релей» через POST. Нужна там, где по этому адресу отдаётся
+  // ещё и сайт (Cloudflare Workers + статика): GET перехватывает страница-заглушка,
+  // а POST всегда доходит до кода.
+  if (body && body.health) {
+    return { status: 200, data: diagnostics(cfg, 'post-health') };
+  }
+  if (body && body.checkInitiative) return handleInitiative(body, cfg);
+  return handleChat(body, cfg);
+}
 
 export default {
   async fetch(request, env, ctx) {
-    const cfg = getConfig(env || {});
-    let method = 'GET';
-    try {
-      method = String(request.method || 'GET').toUpperCase();
-    } catch (e) {
-      method = 'GET';
-    }
+    const cfg = configFrom(env);
+    const method = request.method.toUpperCase();
+    const url = new URL(request.url);
 
     if (method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (method === 'GET' || method === 'HEAD') {
-      // Любой GET — диагностика: открыл адрес в браузере и видно, что релей жив.
-      return json(200, diagnostics(cfg));
+    if (method === 'GET') {
+      return json(200, diagnostics(cfg, 'cloudflare-worker'));
     }
 
     if (method !== 'POST') {
@@ -372,11 +283,9 @@ export default {
     }
 
     const parsed = await parseRequestBody(request);
-    if (!parsed.ok) {
-      return json(400, softError(parsed.code, parsed.detail || 'некорректный JSON в теле запроса'));
-    }
+    if (!parsed.ok) return json(400, softError(parsed.code, parsed.detail));
 
-    if (!cfg.hasKey) {
+    if (!cfg.key) {
       return json(500, softError('no_api_key', 'в воркере не настроен секрет DEEPSEEK_API_KEY'));
     }
 
@@ -384,8 +293,11 @@ export default {
       const result = await processRequest(parsed.body, cfg);
       return json(result.status, result.data);
     } catch (e) {
-      console.error('[worker] unhandled error:', e);
+      console.error('[relay] unhandled error:', e);
       return json(500, softError('server_error', 'внутренняя ошибка релея'));
     }
   }
 };
+
+/* Экспорт для тестов и адаптеров (Deno/Netlify/Vercel используют тот же код). */
+export { processRequest, configFrom, askDeepSeek, softError, VERSION, SERVICE };

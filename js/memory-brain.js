@@ -18,6 +18,7 @@
   var BLACKOUT_FROM = 1786554000000;
 
   var brain = null;
+  var kb = null;
   var loadedAt = 0;
 
   function isBlocked(ts) {
@@ -33,6 +34,123 @@
 
   function getBrain() { return brain; }
   function hasBrain() { return !!(brain && brain.profile); }
+
+  function setKb(data) {
+    if (!data || typeof data !== 'object') return false;
+    kb = data;
+    return true;
+  }
+  function hasKb() { return !!(kb && (kb.people || kb.topics)); }
+
+  /* ---------- База знаний: люди, темы, месяцы, шутки ---------- */
+  function words4(text) {
+    return String(text || '').toLowerCase().split(/[^а-яёa-z0-9]+/).filter(function (w) { return w.length >= 4; });
+  }
+
+  function kbBlock(query, opts) {
+    opts = opts || {};
+    if (!hasKb()) return '';
+    var q = String(query || '').toLowerCase();
+    // расширяем вопрос ассоциациями: «познакомились» → дайвинчик, анкета, лайкнула
+    var expanded = q;
+    if (typeof expandTerms === 'function') {
+      var extra = expandTerms(words4(q));
+      if (extra.length) expanded = q + ' ' + extra.join(' ');
+    }
+    var qw = words4(expanded);
+    var out = [];
+
+    // 1) люди: ищем имя из вопроса
+    var people = kb.people || [];
+    var hitPeople = [];
+    for (var i = 0; i < people.length; i++) {
+      var nm = String(people[i].name || '').toLowerCase();
+      if (nm.length < 3) continue;
+      var stem = nm.slice(0, Math.max(3, nm.length - 1));
+      if (q.indexOf(stem) !== -1) hitPeople.push(people[i]);
+    }
+    if (hitPeople.length) {
+      var lines = ['═══ О ЛЮДЯХ (из переписки) ═══'];
+      for (var p = 0; p < hitPeople.length && p < 3; p++) {
+        var per = hitPeople[p];
+        lines.push('▸ ' + per.name + ' — упоминается ' + per.count + ' раз' +
+          (per.roles && per.roles.length ? ', роль: ' + per.roles.join(', ') : ''));
+        var qs = (per.quotes || []).slice(0, 3);
+        for (var k = 0; k < qs.length; k++) lines.push('   [' + qs[k].date + '] ' + qs[k].text);
+      }
+      out.push(lines.join('\n'));
+    }
+
+    // 2) темы: по совпадению слов вопроса с названием темы
+    var topics = kb.topics || {};
+    var tkeys = Object.keys(topics);
+    var scored = [];
+    for (var t = 0; t < tkeys.length; t++) {
+      var title = tkeys[t].toLowerCase();
+      var score = 0;
+      for (var w = 0; w < qw.length; w++) {
+        var short = qw[w].slice(0, 4);                 // «ссорились» → «ссор» найдёт тему «ссоры и обиды»
+        if (short.length >= 4 && title.indexOf(short) !== -1) score += 4;
+      }
+      if (score > 0) scored.push({ title: tkeys[t], score: score, data: topics[tkeys[t]] });
+    }
+    scored.sort(function (a, b) { return b.score - a.score; });
+    if (scored.length) {
+      var tl = ['═══ ЧТО БЫЛО ПО ТЕМЕ (её слова) ═══'];
+      for (var s = 0; s < scored.length && s < 2; s++) {
+        var d = scored[s].data;
+        tl.push('▸ ' + scored[s].title + ' (' + d.count + ' её сообщений)');
+        var dq = (d.quotes || []).filter(function (x) { return !isBlocked(normDate(x.date)); }).slice(0, 5);
+        for (var j = 0; j < dq.length; j++) tl.push('   [' + dq[j].date + '] ' + dq[j].text);
+      }
+      out.push(tl.join('\n'));
+    }
+
+    // 3) месяц, если он назван
+    var mm = /(\d{4})-(\d{2})/.exec(q);
+    var monthName = /(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i.exec(q);
+    var yearGiven = /(20\d{2})/.exec(q);
+    var monthData = null;
+    if (mm) {
+      monthData = (kb.months || []).filter(function (x) { return x.ym === mm[1] + '-' + mm[2]; })[0];
+    } else if (monthName) {
+      var idx = ['январ', 'феврал', 'март', 'апрел', 'ма', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр']
+        .findIndex(function (p) { return monthName[0].toLowerCase().indexOf(p) === 0; });
+      if (idx >= 0) {
+        var num = (idx + 1 < 10 ? '0' : '') + (idx + 1);
+        if (yearGiven) {
+          monthData = (kb.months || []).filter(function (x) { return x.ym === yearGiven[1] + '-' + num; })[0] || null;
+        } else {
+          var cand = (kb.months || []).filter(function (x) { return x.ym.slice(-3) === '-' + num; });
+          monthData = cand[cand.length - 1] || null;
+        }
+      }
+    }
+    if (monthData) {
+      var ml = ['═══ ТОТ МЕСЯЦ (хроника) ═══', '▸ ' + monthData.ym + ': ' + monthData.count + ' сообщений, темы: ' + (monthData.topics || []).join(', ')];
+      var mq = (monthData.quotes || []).filter(function (x) { return !isBlocked(normDate(x.date)); }).slice(0, 4);
+      for (var n = 0; n < mq.length; n++) ml.push('   [' + mq[n].date + '] ' + mq[n].text);
+      out.push(ml.join('\n'));
+    }
+
+    // 4) шутки по ключевому слову
+    var jokes = kb.jokes || {};
+    var jkeys = Object.keys(jokes);
+    for (var jj = 0; jj < jkeys.length; jj++) {
+      var jt = jkeys[jj].toLowerCase();
+      var jhit = qw.some(function (w) { return jt.indexOf(w.slice(0, Math.max(4, w.length - 2))) !== -1; });
+      if (jhit && (jokes[jkeys[jj]] || []).length) {
+        var jl = ['═══ ВАША ШУТКА: ' + jkeys[jj] + ' ═══'];
+        jokes[jkeys[jj]].slice(0, 3).forEach(function (x) { jl.push('   [' + x.date + '] ' + x.text); });
+        out.push(jl.join('\n'));
+        break;
+      }
+    }
+
+    var text = out.join('\n\n');
+    var limit = opts.maxChars || 4000;
+    return text.length > limit ? text.slice(0, limit) : text;
+  }
 
   function fmtDate(ts) {
     if (!(ts > 0)) return '';
@@ -59,8 +177,22 @@
       out.push('- ' + label + ': ' + value);
     };
     push('Имя', (p['имена'] || []).join(' / '));
+    push('Настоящее имя', p['настоящее_имя']);
+    push('Про имя (важная деталь)', p['легенда']);
+    push('Отчество', p['отчество']);
+    push('Как он тебя зовёт', p['как_он_её_зовёт']);
+    push('Как ты его зовёшь', p['как_она_его_зовёт']);
+    push('Твои словечки', p['её_словечки']);
+    push('Твои игры и спорт', p['её_игры_и_спорт']);
+    push('Твои люди', p['её_люди']);
+    push('Что он для тебя', p['что_он_для_неё']);
+    push('ВАЖНО про вас', p['важно_про_вас']);
+    push('Как пишет он', p['его_манера']);
+    push('Важные даты', p['важные_даты']);
+    push('Твой ритм', p['твой_ритм']);
     push('Город', p['город']);
     push('Возраст', p['возраст']);
+    push('Рост/вес', p['рост_вес']);
     push('Семья', p['семья']);
     push('Учёба', p['учёба']);
     push('Тренировки', p['тренировки']);
@@ -191,6 +323,8 @@
     }
     var tb = topicBlock(query, opts.maxTopics || 2);
     if (tb) parts.push('═══ ЧТО БЫЛО ПО ЭТОЙ ТЕМЕ (реальные твои сообщения) ═══\n' + tb);
+    var kbText = kbBlock(query, { maxChars: Math.max(1200, Math.round(maxChars * 0.4)) });
+    if (kbText) parts.push(kbText);
     var mb = monthBlock(query);
     if (mb) parts.push('═══ ТОТ МЕСЯЦ (хроника) ═══\n' + mb);
     if (episodes && episodes.length) {
@@ -210,6 +344,9 @@
     setBrain: setBrain,
     getBrain: getBrain,
     hasBrain: hasBrain,
+    setKb: setKb,
+    hasKb: hasKb,
+    kbBlock: kbBlock,
     profileBlock: profileBlock,
     expandTerms: expandTerms,
     topicBlock: topicBlock,
