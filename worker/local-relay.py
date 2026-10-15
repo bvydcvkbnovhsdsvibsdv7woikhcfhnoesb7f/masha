@@ -35,7 +35,7 @@ BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/co
 TEXT_MODEL = os.environ.get("DEEPSEEK_TEXT_MODEL", "deepseek-flash")
 VISION_MODEL = os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash")
 TIMEOUT = int(os.environ.get("RELAY_TIMEOUT_MS", "30000")) / 1000.0
-MAX_TOKENS = int(os.environ.get("RELAY_MAX_TOKENS", "350"))
+MAX_TOKENS = int(os.environ.get("RELAY_MAX_TOKENS", "700"))
 THOUGHTS = os.environ.get("DEEPSEEK_THOUGHTS", "1") != "0"
 SOFT_REPLY = "блин, у меня чето связь пропала, давай еще раз?"
 
@@ -56,7 +56,7 @@ def soft_error(code, message):
     return {"ok": False, "error": code, "message": message, "reply": SOFT_REPLY}
 
 
-def ask_deepseek(messages, model):
+def ask_deepseek(messages, model, max_tokens=None):
     """Запрос к DeepSeek. Никогда не бросает исключение: возвращает (ok, reply|код)."""
     key = api_key()
     if not key:
@@ -64,7 +64,7 @@ def ask_deepseek(messages, model):
     body = json.dumps({
         "model": model,
         "messages": messages,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": max_tokens or MAX_TOKENS,
         "temperature": 0.9,
         "stream": False,
     }).encode("utf-8")
@@ -93,6 +93,9 @@ def ask_deepseek(messages, model):
     except Exception:
         content = None
     if not content or not str(content).strip():
+        # у модели часть токенов уходит на рассуждение — пробуем с удвоенным лимитом
+        if max_tokens < 2000:
+            return ask_deepseek(messages, model, max_tokens * 2)
         return False, "deepseek_empty"
     return True, str(content).strip()
 

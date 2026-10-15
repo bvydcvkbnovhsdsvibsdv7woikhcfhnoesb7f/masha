@@ -165,7 +165,7 @@ test('промпт: версия подставляется автоматиче
   await new Promise(r => setTimeout(r, 60));
 
   // свежая установка: промпт отмечается текущей версией и содержит данные из архива
-  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '9');
+  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '10');
   const prompt = app.eval('state.prompt');
   assert.match(prompt, /Виктория|Вика/);
   assert.match(prompt, /лошад/, 'в промпте должны быть её внутренние шутки из архива');

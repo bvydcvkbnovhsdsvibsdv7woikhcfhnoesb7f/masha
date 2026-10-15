@@ -69,7 +69,7 @@ function configFrom(env) {
     baseUrl: e.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions',
     thoughts: String(e.DEEPSEEK_THOUGHTS === undefined ? '1' : e.DEEPSEEK_THOUGHTS) !== '0',
     timeoutMs: num(e.RELAY_TIMEOUT_MS, 30000),
-    maxTokens: num(e.RELAY_MAX_TOKENS, 350),
+    maxTokens: num(e.RELAY_MAX_TOKENS, 700),
     temperature: 0.9
   };
 }
@@ -92,7 +92,7 @@ async function parseRequestBody(request) {
 }
 
 /* Запрос к DeepSeek. Никогда не бросает: возвращает {ok:false, code} вместо исключения. */
-async function askDeepSeek(messages, model, cfg) {
+async function askDeepSeek(messages, model, cfg, depth) {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timer = null;
   if (controller) {
@@ -131,6 +131,16 @@ async function askDeepSeek(messages, model, cfg) {
       ? data.choices[0].message.content
       : null;
     if (!content || !String(content).trim()) {
+      // У deepseek-flash часть токенов уходит на внутреннее рассуждение
+      // (reasoning_tokens), и при малом лимите на сам ответ может не остаться.
+      // Поэтому при пустом ответе пробуем ещё раз с удвоенным лимитом.
+      const reason = data && data.choices && data.choices[0] ? data.choices[0].finish_reason : '';
+      const used = data && data.usage && data.usage.completion_tokens_details
+        ? data.usage.completion_tokens_details.reasoning_tokens : 0;
+      if (cfg.maxTokens < 2000 && (depth || 0) < 2) {
+        console.error('[relay] пустой ответ (finish=' + reason + ', reasoning=' + used + ') — повтор с лимитом ' + (cfg.maxTokens * 2));
+        return askDeepSeek(messages, model, Object.assign({}, cfg, { maxTokens: cfg.maxTokens * 2 }), (depth || 0) + 1);
+      }
       return { ok: false, code: 'deepseek_empty', detail: JSON.stringify(data).slice(0, 200) };
     }
     return { ok: true, reply: String(content).trim() };
