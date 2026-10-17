@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * check-all.mjs — полная ревизия проекта: код, архив, индекс, приложение.
  *
@@ -194,10 +194,13 @@ try {
       else bad('в промпте нет: ' + label);
     }
   }
-  for (const id of ['chat', 'input', 'offline-banner', 'server-banner', 'memory-stats', 'endpoints-input', 'archive-progress', 'prompt', 'who-modal']) {
+  for (const id of ['chat', 'input', 'offline-banner', 'server-banner', 'memory-stats', 'endpoints-input', 'archive-progress', 'who-modal']) {
     if (html.includes('id="' + id + '"')) ok('элемент #' + id);
     else bad('нет элемента #' + id);
   }
+  // редактор промпта убран из настроек намеренно — промпт обновляется сборкой
+  if (!html.includes('id="prompt"')) ok('промпт-редактор убран из настроек (по просьбе)');
+  else warn('в настройках снова появился редактор промпта');
 } catch (e) { bad('index.html: ' + e.message); }
 
 /* ---------- 6. адреса релея ---------- */

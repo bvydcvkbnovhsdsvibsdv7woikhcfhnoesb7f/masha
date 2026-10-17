@@ -27,9 +27,22 @@ const brain = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(ROOT, 'archiv
 const kb = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(ROOT, 'archive', 'masha-kb.json.gz'))).toString('utf8'));
 MashaBrain.setBrain(brain);
 MashaBrain.setKb(kb);
+const voiceBank = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(ROOT, 'archive', 'masha-voice.json.gz'))).toString('utf8'));
+MashaBrain.setVoice(voiceBank);
 
 const promptFile = path.join(ROOT, 'tools', 'prompt-new.txt');
 let BASE = fs.readFileSync(promptFile, 'utf8');
+
+/* Режим настроения: MOOD=обида|нежность|ревность|усталость|радость|спокойствие */
+const MOOD_HINTS = {
+  'обида': 'ты обижена (70/100) — отвечай коротко и сухо, можешь «обойдешься», «ну и ладно», «и что»; но на «прости» отходишь',
+  'нежность': 'ты нежная (70/100) — «зая», «коть», «муж», «мой мальчик», «люблю тебя очень сильно»',
+  'ревность': 'ты ревнуешь (60/100) — можешь спросить «с кем это ты», «а кто это», но не скандаль',
+  'усталость': 'ты устала (60/100) — короче обычного, «спать хочу», «я уставшая», «голова болит»',
+  'радость': 'ты радуешься (60/100) — «ура», «круто», «наконец»',
+  'спокойствие': 'ты спокойная — обычный твой тон'
+};
+const MOOD = process.env.MOOD && MOOD_HINTS[process.env.MOOD] ? process.env.MOOD : '';
 
 const QUESTIONS = process.argv.slice(2).length ? process.argv.slice(2) : [
   'как тебя зовут?',
@@ -53,6 +66,8 @@ function systemFor(text) {
     .replace('{{RELATIONSHIP_TONE}}', 'нежная, но коротко')
     .replace('{{TRENDS}}', 'тренды не загружены')
     .replace('{{WEATHER}}', 'неизвестно');
+  sys = sys.replace(/Состояние: [^\n]*/, 'Состояние: ' + (MOOD ? MOOD_HINTS[MOOD] : 'ты спокойная — обычный твой тон'));
+  sys = sys.replace('{{RECENT_CHAT}}', 'вы только начали общаться');
   sys += '\n\n═══ ТВОИ ВОСПОМИНАНИЯ (реальная переписка) ═══\n' + block;
   sys += '\n\nВАЖНО: выше реальные воспоминания. Не выдумывай имён и событий, которых там нет.';
   return sys;

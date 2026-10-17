@@ -19,6 +19,7 @@
 
   var brain = null;
   var kb = null;
+  var voice = null;
   var loadedAt = 0;
 
   function isBlocked(ts) {
@@ -41,6 +42,94 @@
     return true;
   }
   function hasKb() { return !!(kb && (kb.people || kb.topics)); }
+
+  function setVoice(data) {
+    if (!data || typeof data !== 'object') return false;
+    voice = data;
+    return true;
+  }
+  function hasVoice() { return !!(voice && voice.pairs && voice.archetypes); }
+
+  /* ---------- Голос: как она говорит в реальности ---------- */
+  function stem4(w) { return String(w || '').toLowerCase().slice(0, 4); }
+
+  function bankBlock(query, opts) {
+    opts = opts || {};
+    if (!hasVoice()) return '';
+    var qw = words4(query);
+    if (!qw.length) return '';
+    var qs = qw.map(stem4);
+    var out = [];
+
+    // 1) «вопрос → её реальный ответ» — самые похожие пары
+    var pairs = voice.pairs || [];
+    var scored = [];
+    for (var i = 0; i < pairs.length; i++) {
+      var pr = pairs[i];
+      var pw = words4(pr.q).map(stem4);
+      var hit = 0;
+      for (var a = 0; a < pw.length; a++) if (qs.indexOf(pw[a]) !== -1) hit++;
+      if (hit > 0) scored.push({ hit: hit / Math.sqrt(pw.length + 1), p: pr });
+    }
+    scored.sort(function (x, y) { return y.hit - x.hit; });
+    if (scored.length) {
+      var lines = ['═══ КАК ТЫ ОТВЕЧАЛА НА ТАКОЕ (реальные пары из переписки) ═══'];
+      for (var k = 0; k < scored.length && k < 6; k++) {
+        lines.push('он: ' + scored[k].p.q + '\nты: ' + scored[k].p.a);
+      }
+      out.push(lines.join('\n'));
+    }
+
+    // 2) архетипы: подходящие по смыслу вопроса
+    var arche = voice.archetypes || {};
+    var archHints = {
+      'обида/злость': /(беси|обид|дурак|отстан|достал|игнор|почему не|и что)/i,
+      'нежность': /(любл|скуча|зая|коть|обним|целу|соскучил)/i,
+      'приветствие': /(привет|хай|доброе утро|здравств)/i,
+      'прощание/сон': /(спать|спокойной|пока|до завтра|ложись)/i,
+      'отказ': /(не хочу|не буду|не могу|нет)/i,
+      'согласие': /(да|ага|хорошо|ладно|ок)/i,
+      'еда': /(еда|кушать|поесть|голод|вкусн|кофе|чипс|шаурм)/i,
+      'кот': /(кот|котик|котён|кошк)/i,
+      'школа': /(школ|урок|класс|учител|экзамен)/i,
+      'семья': /(мама|папа|брат|малой|бабушк|ван)/i,
+      'игры': /(игра|роблокс|майнкрафт|бравл|гренни)/i,
+      'музыка/фильм': /(песн|музык|фильм|сериал|тикток)/i,
+      'подруги': /(подруг|настя|полина|ксюш|друз)/i,
+      'сно/сон': /(сон|выспал|устал|лежу)/i,
+      'быт': /(магазин|уборк|готовл|погуля|поехал)/i,
+      'шутка/смех': /(смешн|хаха|прикол|шутк|кринж)/i
+    };
+    var picked = [];
+    for (var name in archHints) {
+      if (archHints[name].test(query) && arche[name] && arche[name].examples) picked.push(name);
+      if (picked.length >= 2) break;
+    }
+    if (picked.length) {
+      for (var p = 0; p < picked.length; p++) {
+        var block = arche[picked[p]];
+        var ex = (block.examples || []).slice(0, 8);
+        if (!ex.length) continue;
+        var ls = ['═══ ТВОИ ЖИВЫЕ ФРАЗЫ — ' + picked[p] + ' (' + block.count + ' твоих сообщений) ═══'];
+        for (var e = 0; e < ex.length; e++) ls.push('«' + ex[e].t + '»');
+        out.push(ls.join('\n'));
+      }
+    }
+
+    // 3) как она рассказывает — если просят рассказать
+    if (/(расскаж|как прошло|что нового|как дела|что дела|помнишь)/i.test(query) && voice.storytelling) {
+      var st = (voice.storytelling.examples || []).slice(0, 3);
+      if (st.length) {
+        var sl = ['═══ КАК ТЫ РАССКАЗЫВАЕШЬ (примеры твоих рассказов) ═══'];
+        for (var s = 0; s < sl.length - 0 && s < st.length; s++) sl.push('«' + st[s].t + '»');
+        out.push(sl.join('\n'));
+      }
+    }
+
+    var text = out.join('\n\n');
+    var limit = opts.maxChars || 3200;
+    return text.length > limit ? text.slice(0, limit) : text;
+  }
 
   /* ---------- База знаний: люди, темы, месяцы, шутки ---------- */
   function words4(text) {
@@ -184,6 +273,9 @@
     push('Как ты его зовёшь', p['как_она_его_зовёт']);
     push('Твои словечки', p['её_словечки']);
     push('Твои игры и спорт', p['её_игры_и_спорт']);
+    push('Твоя музыка', p['её_музыка']);
+    push('Твои мемы и интернет', p['её_мемы']);
+    push('Твои увлечения', p['её_увлечения']);
     push('Твои люди', p['её_люди']);
     push('Что он для тебя', p['что_он_для_неё']);
     push('ВАЖНО про вас', p['важно_про_вас']);
@@ -325,6 +417,8 @@
     if (tb) parts.push('═══ ЧТО БЫЛО ПО ЭТОЙ ТЕМЕ (реальные твои сообщения) ═══\n' + tb);
     var kbText = kbBlock(query, { maxChars: Math.max(1200, Math.round(maxChars * 0.4)) });
     if (kbText) parts.push(kbText);
+    var voiceText = bankBlock(query, { maxChars: Math.max(1200, Math.round(maxChars * 0.35)) });
+    if (voiceText) parts.push(voiceText);
     var mb = monthBlock(query);
     if (mb) parts.push('═══ ТОТ МЕСЯЦ (хроника) ═══\n' + mb);
     if (episodes && episodes.length) {
@@ -346,6 +440,9 @@
     hasBrain: hasBrain,
     setKb: setKb,
     hasKb: hasKb,
+    setVoice: setVoice,
+    hasVoice: hasVoice,
+    bankBlock: bankBlock,
     kbBlock: kbBlock,
     profileBlock: profileBlock,
     expandTerms: expandTerms,

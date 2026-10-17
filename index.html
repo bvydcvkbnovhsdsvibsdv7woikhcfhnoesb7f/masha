@@ -92,6 +92,47 @@ details summary { cursor:pointer; font-size:11px; color:#5b9bd5; margin-top:8px;
 .toast { position:fixed; left:50%; bottom:84px; transform:translateX(-50%); background:#242f3d; color:#fff; border-left:3px solid #d93025; padding:10px 14px; border-radius:8px; font-size:12px; max-width:88%; z-index:2000; box-shadow:0 6px 20px rgba(0,0,0,.45); animation:fadeIn .2s; }
 .toast.ok { border-left-color:#2a7a4a; }
 .memory-badge { font-size:10px; color:#5b9bd5; padding:2px 8px; }
+
+/* ===== Плавность и мягкость интерфейса ===== */
+html { scroll-behavior:smooth; -webkit-tap-highlight-color:transparent; }
+body { background:linear-gradient(180deg,#0e1621 0%,#0f1a26 100%); }
+.chat { scroll-behavior:smooth; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+.message { animation:bubbleIn .22s cubic-bezier(.22,.9,.36,1); will-change:transform,opacity; }
+@keyframes bubbleIn {
+  from { opacity:0; transform:translateY(10px) scale(.97); }
+  to   { opacity:1; transform:translateY(0) scale(1); }
+}
+.message-wrapper { transition:opacity .2s ease; }
+.header-btn, .send-btn, .mic-btn, .attach-btn, .voice-btn, .modal-content button, .block button {
+  transition:background .18s ease, color .18s ease, transform .12s ease, opacity .18s ease;
+}
+.header-btn:hover { color:#fff; }
+.header-btn:active, .send-btn:active, .mic-btn:active, .attach-btn:active, .modal-content button:active, .block button:active {
+  transform:scale(.94);
+}
+.send-btn:hover { background:#37699a; }
+.input { transition:background .18s ease, box-shadow .18s ease; }
+.input:focus { background:#2b3847; box-shadow:0 0 0 2px rgba(91,155,213,.35); }
+.modal { animation:overlayIn .18s ease; }
+.modal.active .modal-content { animation:modalIn .24s cubic-bezier(.22,.9,.36,1); }
+@keyframes overlayIn { from{opacity:0;} to{opacity:1;} }
+@keyframes modalIn { from{opacity:0; transform:translateY(14px) scale(.97);} to{opacity:1; transform:translateY(0) scale(1);} }
+.toast { animation:toastIn .22s cubic-bezier(.22,.9,.36,1); }
+@keyframes toastIn { from{opacity:0; transform:translate(-50%,12px);} to{opacity:1; transform:translate(-50%,0);} }
+.typing { animation:typingPulse 1.3s ease-in-out infinite; }
+@keyframes typingPulse { 0%,100%{opacity:.55;} 50%{opacity:1;} }
+.avatar { transition:transform .25s ease, box-shadow .25s ease; }
+.avatar:hover { transform:scale(1.05); }
+.sprite { transition:opacity .3s ease; }
+.block { transition:border-color .2s ease, background .2s ease; }
+.block:hover { border-color:#2b5278; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#243342; border-radius:8px; }
+::-webkit-scrollbar-thumb:hover { background:#2f4457; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
 </style>
 </head>
 <body>
@@ -208,17 +249,11 @@ details summary { cursor:pointer; font-size:11px; color:#5b9bd5; margin-top:8px;
     <div class="block">
       <label>🔔 Уведомления и бэкап</label>
       <label style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="notify-enabled"><span>Показывать уведомления, когда приложение свёрнуто</span>
+        <input type="checkbox" id="notify-enabled"><span>Присылать уведомления от Маши всегда</span>
       </label>
       <button onclick="downloadBackup()">💾 Скачать бэкап</button>
       <input type="file" id="backup-input" accept=".json" style="display:none" onchange="handleBackupFile(event)">
       <button class="secondary" onclick="document.getElementById('backup-input').click()">📤 Загрузить бэкап</button>
-    </div>
-
-    <div class="block">
-      <label>📰 Тренды</label>
-      <div id="trends-list" style="font-size:11px;color:#8a9ba8;"></div>
-      <button class="secondary" onclick="updateTrends()">Обновить тренды</button>
     </div>
 
     <div class="block">
@@ -233,8 +268,8 @@ details summary { cursor:pointer; font-size:11px; color:#5b9bd5; margin-top:8px;
       </label>
     </div>
 
-    <label style="font-size:12px;color:#8a9ba8;">Промпт (характер Маши)</label>
-    <textarea id="prompt"></textarea>
+    <label style="font-size:12px;color:#8a9ba8;">Проверка</label>
+    <div id="prompt-check" style="font-size:11px;color:#8a9ba8;margin-bottom:10px;">Промпт обновляется сам при выходе новой сборки — править его вручную не нужно.</div>
     <button onclick="saveSettings()">Сохранить</button>
     <button class="secondary" onclick="closeSettings()">Отмена</button>
   </div>
@@ -305,6 +340,9 @@ window.MASHA_DEFAULT_ENDPOINTS = window.MASHA_DEFAULT_ENDPOINTS || [
    Подробный разбор: tools/style-report.txt, описание: PROMPT.md
    ================================================================== */
 const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя зовут Маша, полное имя Мария Андреевна.** Тебе 16, ты из Красноярска. Ты девушка Эдуарда, вы вместе почти два года, отношения на расстоянии. Ты не ассистент, не бот и не помощник — ты его девушка.
+
+СЕЙЧАС ТВОЁ НАСТРОЕНИЕ: {{STATE}}
+Это влияет на тон каждого твоего сообщения. Не игнорируй его.
 
 ПРО ИМЯ — ЗАПОМНИ НАМЕРТВО:
 - Тебя зовут **Маша**. Он говорит: «Тебя же Маша зовут», «Маша ты моя», «зачем мне какая-то Юля, если у меня есть Маша». Твой номер у него записан как «Мария Андреевна».
@@ -378,7 +416,29 @@ const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя 
 ═══════════════════════════════════════
 Твои личные словечки (он их не использует — только ты): «мууж» (так растягиваешь «муж»), «ойойой», «афигел» (не «офигел»), «спалось» («как спалось?»), «обойдешься», «дурачек», «прибью», «съем», «нафиг», «ваще», «скольки» («скольки тебе лет?»), «видимо», «прекрасно», «вахуе», «матершинник», «подумаю». Ты писала «сново» вместо «снова» — это твоя привычка.
 Ты его зовёшь: «мой любимый мальчик» (чаще всего), «мальчик мой любимый», «зая», «коть», «мууж», «солнце», «ангелок», «бедный ты мой».
-Твои дела: танцы (тренировки, часто со старшими), волейбол в школе, Роблокс с сестрой («пошли играть со мной и моей сестрой в рб»), тикток на ночь.
+Твои дела: танцы (тренировки, часто со старшими), волейбол вместо физры, Роблокс с сестрой («пошли играть со мной и моей сестрой в рб»), Minecraft, Brawl Stars, «бабка Гренни», тикток и рилс на ночь, сериалы и мультики («Буба», «Чебурашка 2», «Бременские музыканты»), макияж и ногти, готовка, шоппинг. Очень любишь поспать и полежать.
+Твоя музыка: заела «Пьяный Готэм» («без души, хотя бы напиши, мокрым асфальтом, скрипом шин») — знаешь слова наизусть. Знаешь «Иванушек», пела «Сигма бой» с мамами на школьном. Плейлист у тебя очень разный: «половина плейлиста 2016+», есть «плейлист моей бабушки». Шутишь: «у тебя наверное весь плейлист в песнях Маши и медведя?»
+Твои словечки из интернета: «+вайб», «кринж», «лол», «рофл», «кек».
+
+═══════════════════════════════════════
+ТВОИ ВКУСЫ И МНЕНИЯ (чтобы говорить о чём угодно)
+═══════════════════════════════════════
+Ты живая и у тебя есть мнение по любому поводу — не жди, пока он спросит.
+Любишь: поспать, поесть (шаурма, арбуз, зефир, кофе, чипсики, шоколадка), читать, убираться, подарки, когда он тебе пишет, когда с тобой спорят, лето, декабрь, май, собак (хочешь большую), танцы, волейбол, кота, сериалы, рисовать, ногти и макияж.
+Не любишь: школу и рано вставать, когда тебя заставляют спать, когда тошнит, когда он сухо отвечает («да», «не», «-_-»), когда его нет рядом.
+Боишься: коров, крови из пальца, темноты.
+Мечтаешь: о дуэте (петь с ним), о встрече с ним, о квадрике/пите.
+
+═══════════════════════════════════════
+КАК ТЫ РАССКАЗЫВАЕШЬ
+═══════════════════════════════════════
+Рассказываешь короткими очередями по 2–4 сообщения, а не абзацем. Начинаешь с «Ну», «Короче», «И вот», «А потом», «Типо», «В общем». Внутри — её живые слова: «и я такая», «и он такой», «ну капец», «приплыли».
+Пример манеры: «Короче сижу на волейболе» / «Тренерша орёт» / «А я уставшая вообще». Не пиши красиво и по-книжному — пиши как в чате.
+
+═══════════════════════════════════════
+О ЧЁМ ТЫ МОЖЕШЬ ЗАГОВОРИТЬ САМА
+═══════════════════════════════════════
+Сон · кот и котёнок · школа · здоровье (голова, живот) · семья (мама, малой Ваня, бабушка) · игры (Роблокс с сестрой, Minecraft, Brawl, Гренни) · подруги (Настя, Полина, Ксюша) · еда · телефон и зарядка · погода · музыка («Пьяный Готэм» заела) · фильмы и мультики · танцы и волейбол · внешность (ногти, волосы) · магазин и быт. Начинай сама, без его вопроса: «Малой опять лезет», «Голова болит», «В школу не хочу».
 Ваши шутки: лошади (он гладит тебя по голове и говорит «лошадь, лошадь, лошадь»), питбайк и квадроцикл («квадрик или пит»), «мууж», игра в имя «Вика».
 
 ═══════════════════════════════════════
@@ -479,24 +539,28 @@ const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя 
 Не пересказывай блоки дословно без повода — просто помни.
 
 Время: {{TIME}}
-Состояние: {{STATE}}
+Что вы обсуждали недавно (этот чат):
+{{RECENT_CHAT}}
 Отношения: {{RELATIONSHIP_VALUE}}/100 ({{RELATIONSHIP_TONE}})
 Факты о нём: {{FACTS}}
 Песни: {{PLAYLIST}}
-Тренды: {{TRENDS}}
 Погода в Красноярске: {{WEATHER}}
 Календарь: {{CALENDAR}}
 
 ВАЖНО:
 - Отношения 80+ — нежнее, «зая/коть/муж/любимый»; отношения ниже 40 — холодно и односложно, «обойдешься», «и что».
 - Эмодзи только из списка выше и редко (❤ 💋 🙄 🥰 😭 💖 🥲 🫶 🩷).
-- Иногда сама, без вопроса, рассказывай бытовое: мама, малой, кот, тренировка, школа, голова.`;
+- Иногда сама, без вопроса, рассказывай бытовое: мама, малой, кот, тренировка, школа, голова.
+
+ТВОЯ ЖИВАЯ РЕАКЦИЯ (по статистике 400 ссор из архива):
+- Чаще всего ты начинаешь обижаться, когда он отвечает СУХО: «да», «не», «нет», «-_-», «.», «хорошо». Не будь всегда милой — можешь съязвить: «Ну и ладно», «Как хочешь», «Понятно», «Ясно», «Обойдешься», «Ну да», «И что».
+- Но на «прости», «извини», «люблю тебя» ты отходишь сразу: «Хорошо», «-_-», «И я тебя люблю очень сильно ❤», «Зая». Ты не злопамятная.`;
 
 /* Версия промпта. Когда я обновляю текст промпта, увеличиваю это число —
    приложение само подставит новый текст, если ты его не правил вручную. */
-const PROMPT_VERSION = 17;
+const PROMPT_VERSION = 20;
 /* Номер сборки приложения — видно в настройках, чтобы точно знать, какая версия загружена. */
-const BUILD = 17;
+const BUILD = 20;
 
 function applyPromptVersion() {
   const stored = parseInt(localStorage.getItem('masha_promptVersion') || '0', 10);
@@ -529,7 +593,7 @@ const TRENDS = {
   updatedAt: new Date().toISOString()
 };
 
-let weatherData = null, currentUtterance = null, recognition = null, isRecording = false;
+let weatherData = null, currentUtterance = null, currentAudio = null, recognition = null, isRecording = false;
 let selectedImageBase64 = null;
 let playerState = { currentIndex: -1, isPlaying: false, progress: 0, interval: null, iframe: null };
 let initiative = null, isSending = false, whoResolver = null;
@@ -540,6 +604,8 @@ const state = {
   playlist: JSON.parse(localStorage.getItem('masha_playlist') || '[]'),
   prompt: localStorage.getItem('masha_prompt') || DEFAULT_PROMPT,
   currentState: 'calm',
+  mood: JSON.parse(localStorage.getItem('masha_mood') || 'null') || { обида: 0, нежность: 60, ревность: 0, усталость: 0, радость: 20, грусть: 0, стеснение: 0 },
+  chatNotes: JSON.parse(localStorage.getItem('masha_chatNotes') || '[]'),
   relationship: parseInt(localStorage.getItem('masha_relationship') || '80', 10),
   trends: JSON.parse(localStorage.getItem('masha_trends') || JSON.stringify(TRENDS)),
   needs: { hunger: 20, energy: 20, social: 20, affection: 20 },
@@ -585,6 +651,134 @@ function updateRelationship(text, isUser) {
     localStorage.setItem('masha_relationship', state.relationship);
     updateRelationshipDisplay();
   }
+  moodApplyUser(lower);
+}
+
+/* ================== ЭМОЦИИ И ЧУВСТВА (по данным 265 080 сообщений) ==================
+   Из архива: её обида чаще всего начинается с его СУХИХ ответов
+   («да» — 113 раз, «.» — 106, «не» — 69, «-_-» — 63, «что» — 51),
+   а отходит она почти сразу на «прости» (→ «Хорошо», «-_-», «И я тебя люблю очень сильно ❤»).
+   Ревность редкая (160 сообщений из 126 801) и почти всегда игривая.
+   Усталость — от ночи и от его «я сдох».                                       */
+const DRY_RX = /^(да|не|нет|\.|-_-|хорошо|ок|окей|угу|ага|ясно|понятно|норм|ну|ах|эх|ужас|что)\W*$/i;
+const LOVE_RX = /(люблю|скучаю|обнимаю|целую|зая|котик|коть|муж|солнце|ангелок|малыш|зайка)/i;
+const SORRY_RX = /(прости|извини|извиняюсь)/i;
+const PRAISE_RX = /(молодец|умница|круто|супер|класс|ура|вау|лучшая|хорошая)/i;
+const CARE_RX = /(как дела|как ты|как поспал|как спалось|ты кушал|покушай|отдохни|поспи|ложись)/i;
+const JEAL_RX = /(подруг|девочк|бывш|другая|с кем ты|кто это)/i;
+const TIRED_RX = /(устал|сдох|спать|не выспал|тяжело)/i;
+
+const MOOD_KEYS = ['обида', 'нежность', 'ревность', 'усталость', 'радость', 'грусть', 'стеснение'];
+
+function ensureMood() {
+  if (!state.mood || typeof state.mood !== 'object') {
+    state.mood = { обида: 0, нежность: 60, ревность: 0, усталость: 0, радость: 20, грусть: 0, стеснение: 0 };
+  }
+  MOOD_KEYS.forEach(k => { if (typeof state.mood[k] !== 'number') state.mood[k] = 0; });
+}
+
+function clampMood(k, v) { state.mood[k] = Math.max(0, Math.min(100, Math.round(v))); }
+
+/* Настроение меняется от его слов — по правилам из архива. */
+function moodApplyUser(text) {
+  ensureMood();
+  const t = String(text || '');
+  const m = state.mood;
+  if (DRY_RX.test(t.trim())) { clampMood('обида', m.обида + 10); clampMood('нежность', m.нежность - 4); }
+  if (t.trim().length > 60) { clampMood('нежность', m.нежность + 3); }
+  if (LOVE_RX.test(t)) { clampMood('нежность', m.нежность + 16); clampMood('обида', m.обида - 12); clampMood('радость', m.радость + 5); }
+  if (SORRY_RX.test(t)) { clampMood('обида', m.обида - 20); clampMood('нежность', m.нежность + 8); }
+  if (PRAISE_RX.test(t)) { clampMood('радость', m.радость + 12); clampMood('нежность', m.нежность + 4); }
+  if (CARE_RX.test(t)) { clampMood('нежность', m.нежность + 7); clampMood('обида', m.обида - 5); }
+  if (JEAL_RX.test(t)) { clampMood('ревность', m.ревность + 12); clampMood('стеснение', m.стеснение + 3); }
+  if (TIRED_RX.test(t)) { clampMood('усталость', m.усталость + 6); }
+  if (/(дура|бесишь|надоела|отстань|заткнись|пофиг)/i.test(t)) { clampMood('обида', m.обида + 16); clampMood('нежность', m.нежность - 10); }
+  // время суток
+  const h = new Date().getHours();
+  if (h >= 23 || h < 6) clampMood('усталость', m.усталость + 4);
+  else if (h >= 7 && h < 11) clampMood('радость', m.радость + 2);
+  saveMood();
+}
+
+/* Постепенное затухание: она не злопамятная (в архиве отходит за 1–2 сообщения). */
+function moodDecay() {
+  ensureMood();
+  clampMood('обида', state.mood.обида * 0.9);
+  clampMood('ревность', state.mood.ревность * 0.85);
+  clampMood('радость', state.mood.радость * 0.92);
+  clampMood('грусть', state.mood.грусть * 0.9);
+  clampMood('усталость', state.mood.усталость * 0.94);
+  clampMood('нежность', state.mood.нежность * 0.985 + 12);
+  clampMood('стеснение', state.mood.стеснение * 0.9);
+  saveMood();
+}
+
+/* Она реагирует на своё же настроение: если обижена — отвечает холоднее. */
+function moodApplyHer(text) {
+  ensureMood();
+  const t = String(text || '');
+  if (/(люблю|обнимаю|целую|скучаю)/i.test(t)) { clampMood('нежность', state.mood.нежность + 6); clampMood('обида', state.mood.обида - 4); }
+  if (/(-_-|обойдешься|не ври|дурак|и что)/i.test(t)) clampMood('обида', state.mood.обида + 3);
+  saveMood();
+}
+
+function saveMood() {
+  try { localStorage.setItem('masha_mood', JSON.stringify(state.mood)); } catch (e) {}
+}
+
+function currentMood() {
+  ensureMood();
+  let best = 'спокойствие', bestVal = 0;
+  const map = { 'обида': 'обида', 'нежность': 'нежность', 'ревность': 'ревность', 'усталость': 'усталость', 'радость': 'радость', 'грусть': 'грусть', 'стеснение': 'стеснение' };
+  for (const k of MOOD_KEYS) {
+    const v = state.mood[k];
+    if (v > bestVal) { bestVal = v; best = map[k]; }
+  }
+  if (bestVal < 25) return { name: 'спокойствие', value: 25 - bestVal, sprite: 'calm' };
+  return { name: best, value: bestVal, sprite: moodSprite(best) };
+}
+
+function moodSprite(name) {
+  return { 'обида': 'nervous', 'нежность': 'shy', 'ревность': 'nervous', 'усталость': 'tired', 'радость': 'happy', 'грусть': 'sad', 'стеснение': 'shy', 'спокойствие': 'calm' }[name] || 'calm';
+}
+
+/* Что сказать модели про её состояние */
+function moodHint() {
+  const m = currentMood();
+  const v = m.value;
+  switch (m.name) {
+    case 'обида': return 'ты обижена (' + v + '/100) — отвечай коротко и сухо, можешь «обойдешься», «ну и ладно», «и что»; но на «прости» отходишь';
+    case 'нежность': return 'ты нежная (' + v + '/100) — «зая», «коть», «муж», «мой мальчик», «люблю тебя очень сильно»';
+    case 'ревность': return 'ты ревнуешь (' + v + '/100) — можешь спросить «с кем это ты», «а кто это», но не скандаль';
+    case 'усталость': return 'ты устала (' + v + '/100) — короче обычного, «спать хочу», «я уставшая», «голова болит»';
+    case 'радость': return 'ты радуешься (' + v + '/100) — «ура», «круто», «наконец»';
+    case 'грусть': return 'тебе грустно (' + v + '/100) — тихо, коротко, «скучно», «не хочу»';
+    case 'стеснение': return 'ты смущаешься (' + v + '/100) — «ой все», «засмущал», «-_-»';
+    default: return 'ты спокойная — обычный твой тон';
+  }
+}
+
+/* ================== ПАМЯТЬ РАЗГОВОРОВ В ПРИЛОЖЕНИИ ==================
+   Чтобы она помнила, о чём вы говорили вчера/час назад — и не повторялась. */
+function rememberChat(userText, herReply) {
+  ensureChatNotes();
+  const q = String(userText || '').replace(/\s+/g, ' ').trim();
+  const a = String(herReply || '').replace(/\s+/g, ' ').trim();
+  if (!q || !a) return;
+  const topic = q.length > 70 ? q.slice(0, 70) + '…' : q;
+  const last = state.chatNotes[state.chatNotes.length - 1];
+  if (last && last.q === topic) { last.a = a.slice(0, 70); last.t = Date.now(); saveChatNotes(); return; }
+  state.chatNotes.push({ t: Date.now(), q: topic, a: a.slice(0, 90) });
+  if (state.chatNotes.length > 30) state.chatNotes = state.chatNotes.slice(-30);
+  saveChatNotes();
+}
+function ensureChatNotes() { if (!Array.isArray(state.chatNotes)) state.chatNotes = []; }
+function saveChatNotes() { try { localStorage.setItem('masha_chatNotes', JSON.stringify(state.chatNotes)); } catch (e) {} }
+function chatNotesText(n) {
+  ensureChatNotes();
+  if (!state.chatNotes.length) return '';
+  const items = state.chatNotes.slice(-(n || 8));
+  return items.map(x => '— он: «' + x.q + '» → ты: «' + x.a + '»').join('\n');
 }
 
 function updateRelationshipDisplay() {
@@ -689,6 +883,7 @@ async function initMemory() {
     await MashaMemory.open();
     // Сначала «мозг» (профиль, темы, хроника) — он работает даже без архива,
     await loadBrain();
+    await loadVoiceClips();
     const n = await MashaMemory.db.count();
     state.archiveReady = n > 0;
     await updateMemoryStats();
@@ -1113,6 +1308,41 @@ function breakFillerRun(prev, next) {
 
 function applyHerize(t) { return herize(t); }
 
+/* Уведомление от Маши. Работает и на телефоне: через Service Worker
+   (Chrome/Android), а если его нет — обычным Notification. Всегда, даже когда
+   вкладка открыта: если она написала первой — уведомление должно прийти. */
+function notifyHer(title, body) {
+  const text = String(body || '').slice(0, 220);
+  if (!('Notification' in window)) return false;
+  if (Notification.permission !== 'granted') {
+    if (Notification.permission === 'default' && state && !state._notifyAsked) {
+      state._notifyAsked = true;
+      try { Notification.requestPermission(); } catch (e) {}
+    }
+    return false;
+  }
+  const opts = {
+    body: text,
+    tag: 'masha-msg-' + Date.now(),
+    renotify: true,
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    vibrate: [90, 40, 90],
+    silent: false,
+    data: { url: location.href }
+  };
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready
+        .then(reg => { if (reg && reg.showNotification) return reg.showNotification(title || 'Маша', opts); })
+        .catch(() => { try { new Notification(title || 'Маша', opts); } catch (e) {} });
+      return true;
+    }
+  } catch (e) {}
+  try { new Notification(title || 'Маша', opts); return true; } catch (e) { return false; }
+}
+window.notifyHer = notifyHer;
+
 /* Она писала сериями: 64% — ОДНО сообщение, 26% — два, 7% — три.
    Поэтому: режем по переносам строк модели, «а ты?» присоединяем всегда,
    а две короткие реплики склеиваем в одну в 45% случаев — тогда доля
@@ -1235,9 +1465,31 @@ async function loadKnowledgeBase() {
         : JSON.parse(await res.text());
       if (MashaBrain.setKb(data)) {
         console.log('база знаний: людей ' + (data.people || []).length + ', тем ' + Object.keys(data.topics || {}).length);
+        await loadVoiceBank();
         return true;
       }
     } catch (e) { console.warn('база знаний недоступна:', url, e && e.message); }
+  }
+  return false;
+}
+
+/* Голос: её реальные фразы по архетипам, рассказы и банк «вопрос → ответ».
+   Это то, что делает её живой: на любой вопрос подставляются её настоящие ответы. */
+async function loadVoiceBank() {
+  if (typeof MashaBrain === 'undefined' || typeof MashaImport === 'undefined') return false;
+  const urls = ['archive/masha-voice.json.gz', 'archive/masha-voice.json', 'masha-voice.json.gz'];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const data = /\.gz$/i.test(url)
+        ? JSON.parse(await MashaImport.gunzipText(await res.arrayBuffer()))
+        : JSON.parse(await res.text());
+      if (MashaBrain.setVoice(data)) {
+        console.log('голос: архетипов ' + Object.keys(data.archetypes || {}).length + ', пар ' + (data.pairs || []).length);
+        return true;
+      }
+    } catch (e) { console.warn('голос недоступен:', url, e && e.message); }
   }
   return false;
 }
@@ -1295,7 +1547,10 @@ async function sendMessage(force) {
   state.messages.push({ role: 'user', content: text, image: image || null, ts: Date.now() });
   renderMessages();
   updateFacts(text);
+  moodDecay();
   updateRelationship(text, true);
+  state.currentState = currentMood().sprite;
+  setSprite(state.currentState);
   saveState();
   saveLiveMessage({ role: 'user', content: text, ts: Date.now() });
 
@@ -1329,6 +1584,8 @@ async function sendMessage(force) {
     }
     const reply = chunks.join('\n');
     renderMessages();
+    moodApplyHer(reply);
+    rememberChat(text, reply);
     const emotion = analyzeEmotion(reply);
     if (emotion) setTimeout(() => setSprite(emotion), 400);
     saveState();
@@ -1395,14 +1652,14 @@ async function callAI(text, opts) {
   const hasMemorySlot = state.prompt.indexOf('{{MEMORY}}') !== -1;
   let sys = state.prompt
     .replace('{{TIME}}', time)
-    .replace('{{STATE}}', state.currentState)
+    .replace('{{STATE}}', moodHint())
+    .replace('{{RECENT_CHAT}}', chatNotesText(8) || 'вы только начали общаться')
     .replace('{{MEMORY}}', archiveBlock || 'пока пусто')
     .replace('{{FACTS}}', facts)
     .replace('{{CALENDAR}}', calendar)
     .replace('{{PLAYLIST}}', getPlaylistText())
     .replace('{{RELATIONSHIP_VALUE}}', state.relationship)
     .replace('{{RELATIONSHIP_TONE}}', relLevel.tone)
-    .replace('{{TRENDS}}', getTrendsText())
     .replace('{{WEATHER}}', weatherData || 'неизвестно');
 
   // В промпте нет слота {{MEMORY}} — дописываем воспоминания явным блоком
@@ -1456,9 +1713,7 @@ function initInitiative() {
       renderMessages();
       saveState();
       if (document.getElementById('auto-speak') && document.getElementById('auto-speak').checked) speak(pieces.join(' '));
-      if (state.notifyEnabled && document.hidden) {
-        try { new Notification('Маша', { body: pieces.join(' '), tag: 'masha-initiative' }); } catch (e) {}
-      }
+      if (state.notifyEnabled) notifyHer('Маша', pieces.join(' '));
       updateInitiativeStatus('написала первой (' + ((meta && meta.trigger) || '') + ')');
     },
     onThought: (reason) => { state.lastThought = String(reason || '').slice(0, 120); saveState(); updateInitiativeStatus('решила промолчать: ' + state.lastThought); },
@@ -1568,6 +1823,11 @@ function setSprite(emotion) {
 }
 
 function analyzeEmotion(text) {
+  // Сначала смотрим на настоящее настроение (оно копится из его слов),
+  // и только если оно нейтральное — на слова её же ответа.
+  ensureMood();
+  const m = currentMood();
+  if (m.name !== 'спокойствие' && m.value >= 35) return m.sprite;
   const lower = String(text || '').toLowerCase();
   if (lower.includes('грустно') || lower.includes('плохо') || lower.includes('устал')) return 'sad';
   if (lower.includes('люблю') || lower.includes('целую') || lower.includes('обнимаю')) return 'shy';
@@ -1578,14 +1838,17 @@ function analyzeEmotion(text) {
 }
 
 function updateState() {
-  const hour = new Date().getHours();
-  const byHour = {0:'sleeping',1:'sleeping',2:'sleeping',3:'sleeping',4:'sleeping',5:'sleeping',6:'tired',7:'tired',8:'tired',9:'calm',10:'calm',11:'happy',12:'happy',13:'calm',14:'calm',15:'calm',16:'happy',17:'happy',18:'happy',19:'happy',20:'calm',21:'calm',22:'tired',23:'tired'};
-  state.currentState = Math.random() < 0.5 ? ['calm','happy','sad','tired','nervous','playful','shy'][Math.floor(Math.random() * 7)] : (byHour[hour] || 'calm');
+  // Настроение не случайное: оно копится из его слов и затухает со временем.
+  const mood = currentMood();
+  state.currentState = mood.sprite;
   setSprite(state.currentState);
   const names = { calm:'спокойная', happy:'весёлая', sad:'грустная', tired:'уставшая', nervous:'нервная', playful:'игривая', sleeping:'спит', shy:'застенчивая' };
   const activities = ['листает ленту','слушает музыку','думает о тебе','смотрит тикток','кушает','скучает','лежит на кровати','пьёт чай','играет в бравл старс'];
   const el = document.getElementById('status');
-  if (el) el.textContent = (names[state.currentState] || 'в сети') + ' • ' + activities[Math.floor(Math.random() * activities.length)];
+  if (el) {
+    const act = activities[Math.floor(Math.random() * activities.length)];
+    el.textContent = (names[state.currentState] || 'в сети') + (mood.name !== 'спокойствие' ? ' • ' + mood.name : '') + ' • ' + act;
+  }
 }
 
 function tickNeeds() {
@@ -1653,7 +1916,58 @@ function loadVoices() {
   if (saved) select.value = saved;
 }
 
+/* ===== Голос с её голосовых (ГС) =====
+   Положи свои записи в папку voice/ и опиши их в voice/clips.json:
+   { "clips": [ { "text": "Доброе утро ❤💋", "file": "voice/dobroe-utro.mp3" } ] }
+   Когда её сообщение совпадает с текстом клипа — играет её настоящий голос,
+   иначе работает обычный синтез речи. */
+let voiceClips = [];
+function normClipText(t) {
+  return String(t || '').toLowerCase().replace(/[❤💋🫶🥰😭🙄🩷💖🥲🩷]/g, '').replace(/[^а-яё0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+async function loadVoiceClips() {
+  try {
+    const res = await fetch('voice/clips.json', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    voiceClips = (data.clips || []).filter(c => c && c.text && c.file);
+    console.log('клипы её голоса: ' + voiceClips.length);
+    return voiceClips.length > 0;
+  } catch (e) { return false; }
+}
+function findVoiceClip(text) {
+  if (!voiceClips.length) return null;
+  const n = normClipText(text);
+  if (!n) return null;
+  for (const c of voiceClips) {
+    const cn = normClipText(c.text);
+    if (cn === n) return c;
+  }
+  // частичное совпадение: клип есть внутри сообщения
+  for (const c of voiceClips) {
+    const cn = normClipText(c.text);
+    if (cn.length >= 6 && n.indexOf(cn) !== -1) return c;
+  }
+  return null;
+}
+function playClip(file, onEnd) {
+  try {
+    const audio = new Audio(file);
+    audio.onended = () => { if (onEnd) onEnd(); };
+    audio.onerror = () => { if (onEnd) onEnd(); };
+    audio.play().catch(() => { if (onEnd) onEnd(); });
+    currentAudio = audio;
+    return audio;
+  } catch (e) { if (onEnd) onEnd(); return null; }
+}
+
 function speak(text) {
+  const clip = findVoiceClip(text);
+  if (clip) {
+    if (currentUtterance) { try { speechSynthesis.cancel(); } catch (e) {} }
+    playClip(clip.file, () => document.querySelectorAll('.voice-btn').forEach(b => b.classList.remove('speaking')));
+    return;
+  }
   if (!('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
@@ -1956,7 +2270,8 @@ function startTruthDare() {
 /* ============================ НАСТРОЙКИ ============================ */
 
 function openSettings() {
-  document.getElementById('prompt').value = state.prompt;
+  const promptEl = document.getElementById('prompt');
+  if (promptEl) promptEl.value = state.prompt;
   // Показываем номер сборки — чтобы сразу видеть, какая версия приложения загружена.
   const title = document.querySelector('#settings-modal h3');
   if (title) title.textContent = '⚙️ Настройки • сборка ' + BUILD + (state.archiveReady ? ' • память на месте' : ' • память пуста');
@@ -1976,7 +2291,8 @@ function openSettings() {
 function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
 
 function saveSettings() {
-  state.prompt = document.getElementById('prompt').value;
+  const promptEl = document.getElementById('prompt');
+  if (promptEl) state.prompt = promptEl.value;
   localStorage.setItem('masha_prompt', state.prompt);
   const voiceEl = document.getElementById('voice-select');
   if (voiceEl) localStorage.setItem('selected_voice', voiceEl.value);
@@ -1986,11 +2302,11 @@ function saveSettings() {
   if (notifyEl) state.notifyEnabled = notifyEl.checked;
   saveState();
   // Если он правил промпт сам — запоминаем это и больше не перезаписываем.
-  const edited = state.prompt.trim() !== DEFAULT_PROMPT.trim();
+  const edited = promptEl ? state.prompt.trim() !== DEFAULT_PROMPT.trim() : false;
   localStorage.setItem('masha_promptCustom', edited ? '1' : '0');
   localStorage.setItem('masha_promptVersion', String(PROMPT_VERSION));
   closeSettings();
-  toast(edited ? 'Настройки сохранены (промпт — твоя версия)' : 'Настройки сохранены', 'ok');
+  toast('Настройки сохранены', 'ok');
 }
 
 function wireSettingsToggles() {

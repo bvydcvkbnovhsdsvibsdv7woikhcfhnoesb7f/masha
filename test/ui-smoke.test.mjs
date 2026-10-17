@@ -165,7 +165,7 @@ test('промпт: версия подставляется автоматиче
   await new Promise(r => setTimeout(r, 60));
 
   // свежая установка: промпт отмечается текущей версией и содержит данные из архива
-  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '17');
+  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '20');
   const prompt = app.eval('state.prompt');
   assert.match(prompt, /Виктория|Вика/);
   assert.match(prompt, /лошад/, 'в промпте должны быть её внутренние шутки из архива');
@@ -290,4 +290,63 @@ test('на GitHub Pages свой /api/relay не попадает в настр�
   assert.ok(stats.length > 0);
   assert.ok(app.document.getElementById('initiative-status').textContent.length > 0);
   await app.call('initiative && initiative.stop()');
+});
+
+test('эмоции: сухой ответ её обижает, «прости» — отводит', () => {
+  const app = createApp();
+  const mood = () => app.state().mood;
+  const start = JSON.parse(JSON.stringify(mood()));
+  assert.ok(start.нежность > 0, 'в начале она нежная');
+
+  // по данным архива: «.» и «да» — главные триггеры её обиды
+  app.call('moodApplyUser', '.');
+  assert.ok(mood().обида > start.обида, 'сухой ответ должен поднять обиду');
+  app.call('moodApplyUser', 'да');
+  const обида = mood().обида;
+  assert.ok(обида >= 15, 'накопленная обида: ' + обида);
+
+  // «прости» её отводит (в архиве — сразу «Хорошо»)
+  app.call('moodApplyUser', 'прости меня');
+  assert.ok(mood().обида < обида, 'прости должно снижать обиду: ' + mood().обида);
+
+  // «люблю» усиливает нежность
+  app.call('moodApplyUser', 'я тебя очень сильно люблю');
+  assert.ok(mood().нежность > start.нежность, 'любовь должна поднимать нежность');
+
+  // состояние для промпта — человеческое, а не код спрайта
+  const hint = app.call('moodHint');
+  assert.match(hint, /ты (нежная|обижена|спокойная|радуешься|устала)/i, hint);
+
+  // настроение переживает перезагрузку
+  const saved = app.sandbox.localStorage.getItem('masha_mood');
+  assert.ok(saved && JSON.parse(saved).нежность >= 0, 'настроение сохраняется');
+});
+
+test('память разговоров: помнит, о чём говорили в приложении', () => {
+  const app = createApp();
+  app.call('rememberChat', 'как дела?', 'Нормально, а ты?');
+  app.call('rememberChat', 'что делаешь?', 'Лежу');
+  const text = app.call('chatNotesText', 8);
+  assert.match(text, /как дела/, text);
+  assert.match(text, /Лежу/, text);
+  const notes = app.state().chatNotes;
+  assert.equal(notes.length, 2);
+  // после 30 записей старые вытесняются
+  for (let i = 0; i < 40; i++) app.call('rememberChat', 'вопрос ' + i, 'ответ ' + i);
+  assert.ok(app.state().chatNotes.length <= 30, 'память не растёт бесконечно');
+});
+
+test('промпт получает её настроение и недавний разговор', async () => {
+  const app = createApp({ fetch: async () => jsonReply('Хорошо') });
+  app.call('moodApplyUser', '.');
+  app.call('rememberChat', 'ты где?', 'Дома');
+  await app.call('callAI', 'привет');
+  const req = app.requests.find(r => r.options && typeof r.options.body === 'string');
+  assert.ok(req, 'должен быть запрос к модели: ' + app.requests.length);
+  const body = JSON.parse(req.options.body);
+  const sysText = body.systemPrompt || (body.messages || []).map(m => m.content).join('\n');
+  assert.ok(sysText.includes('Маша'), 'системный промпт на месте');
+  assert.ok(!/\{\{STATE\}\}|\{\{RECENT_CHAT\}\}/.test(sysText), 'все подстановки заполнены');
+  assert.ok(sysText.includes('ты где'), 'недавний разговор попал в промпт');
+  assert.ok(/ты (обижена|нежная|спокойная|устала|радуешься)/i.test(sysText), 'настроение попало в промпт');
 });

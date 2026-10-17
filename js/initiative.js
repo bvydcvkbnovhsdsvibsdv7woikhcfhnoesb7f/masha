@@ -155,6 +155,11 @@
 
     function notify(title, body) {
       var w = root;
+      // приложение само умеет показывать уведомления (через Service Worker на телефоне) —
+      // используем его, если оно доступно
+      try {
+        if (w && typeof w.notifyHer === 'function') return !!w.notifyHer(title || 'Маша', body || '');
+      } catch (e) { /* ignore */ }
       if (!w || !w.Notification) return false;
       try {
         if (w.Notification.permission === 'granted') {
@@ -193,7 +198,6 @@
           log.push(ts);
           saveLog(log);
           onMessage(text, { trigger: decision.reason, endpoint: data.__endpoint });
-          if (documentRef && documentRef.hidden) notify('Маша', text);
           return { sent: true, text: text, trigger: decision.reason };
         }
         var reason = (data && (data.reason || data.message)) || 'не захотела';

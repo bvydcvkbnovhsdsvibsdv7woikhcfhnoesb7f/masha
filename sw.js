@@ -2,15 +2,18 @@
    1) документ (index.html) — network-first, при отсутствии сети из кэша;
    2) js/sw-модули — тоже network-first, чтобы HTML и модули были одной версии;
    3) картинки — cache-first;
-   4) запросы к API — никогда не кэшируются. */
+   4) запросы к API — никогда не кэшируются;
+   5) уведомления от Маши показываются через этот воркер — так они приходят
+      и на телефоне, даже когда приложение свёрнуто или закрыто. */
 
-const CACHE = 'masha-v4';
+const CACHE = 'masha-v5';
 const CORE = [
   './',
   './index.html',
   './manifest.json',
   './js/search-engine.js',
   './js/memory-db.js',
+  './js/memory-brain.js',
   './js/import-manager.js',
   './js/api-client.js',
   './js/initiative.js',
@@ -35,10 +38,38 @@ self.addEventListener('activate', event => {
   })());
 });
 
+/* Нажатие на уведомление — открыть приложение и показать его окно. */
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of all) {
+      if ('focus' in client) {
+        try { await client.focus(); return; } catch (e) { /* ignore */ }
+      }
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(target);
+  })());
+});
+
+/* Если приложение пришлёт push (на будущее) — тоже показываем уведомление. */
+self.addEventListener('push', event => {
+  let payload = { title: 'Маша', body: '' };
+  try { payload = Object.assign(payload, event.data ? event.data.json() : {}); } catch (e) { /* ignore */ }
+  event.waitUntil(self.registration.showNotification(payload.title || 'Маша', {
+    body: payload.body || '',
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    vibrate: [90, 40, 90],
+    tag: 'masha-push',
+    data: { url: payload.url || './' }
+  }));
+});
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;                    // POST к релею — напрямую
-
   let url;
   try { url = new URL(req.url); } catch (e) { return; }
   if (url.origin !== self.location.origin) return;     // чужой хост (воркер и т.п.)
