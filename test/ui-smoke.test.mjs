@@ -165,7 +165,7 @@ test('промпт: версия подставляется автоматиче
   await new Promise(r => setTimeout(r, 60));
 
   // свежая установка: промпт отмечается текущей версией и содержит данные из архива
-  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '10');
+  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '17');
   const prompt = app.eval('state.prompt');
   assert.match(prompt, /Виктория|Вика/);
   assert.match(prompt, /лошад/, 'в промпте должны быть её внутренние шутки из архива');
@@ -194,20 +194,22 @@ test('её ответ дробится на серии, а «чё» правит
   await app.call('sendMessage()');
 
   const her = app.state().messages.filter(m => m.role === 'assistant');
-  assert.equal(her.length, 2, 'ответ должен стать двумя сообщениями, как у неё в архиве');
-  assert.equal(her[0].content, 'Ты чо там');
-  assert.equal(her[1].content, 'Зай, ты чо хотел?');
+  // серии у неё были в 36% случаев: 1-2 сообщения — норма, лишь бы разбивка не ломала текст
+  assert.ok(her.length >= 1 && her.length <= 2, 'серия 1-2 сообщения: ' + her.length);
+  const joined = her.map(m => m.content).join(' ');
+  assert.ok(joined.includes('Ты чо там'), joined);
+  assert.ok(!/чё/i.test(joined), '«чё» должно стать «чо»: ' + joined);
 
   // проверяем саму правку: по архиву «чё» — 50 из 123 354, «чо» — 506
   assert.equal(app.call('herize', 'Чё делаешь?'), 'Чо делаешь?');
   assert.equal(app.call('herize', 'Ты чё там'), 'Ты чо там');
   assert.equal(app.call('herize', 'Че'), 'Чо');
+  assert.equal(app.call('herize', 'М?'), 'А?', '«М?» — не её слово, заменяем на «А?»');
+  assert.equal(app.call('breakFillerRun', '-_-', '-_-'), '?', 'две пустышки подряд не повторяем');
+  assert.equal(app.call('breakFillerRun', 'Нормально', '-_-'), '-_-', 'если предыдущее не пустышка — не трогаем');
   assert.equal(app.call('herize', 'Почекай'), 'Почекай', 'внутри слов не трогаем');
   assert.equal(app.call('herize', 'человек через'), 'человек через');
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(app.call('splitHerReply', 'В кровати лежу. Кот рядом'))),
-    ['В кровати лежу.', 'Кот рядом']
-  );
+  const sp = app.call('splitHerReply', 'Я спать\nУстала, голова болит'); assert.ok(sp.length >= 1 && sp.length <= 2, 'серия 1-2 сообщения: ' + sp.length); assert.ok(sp.join(' ').includes('Устала'));
   await app.call('initiative && initiative.stop()');
 });
 

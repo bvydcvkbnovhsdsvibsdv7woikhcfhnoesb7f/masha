@@ -65,7 +65,7 @@ async function ask(text) {
       { role: 'system', content: systemFor(text) },
       { role: 'user', content: text }
     ],
-    max_tokens: 70,
+    max_tokens: 400,
     temperature: 0.9,
     stream: false
   };
