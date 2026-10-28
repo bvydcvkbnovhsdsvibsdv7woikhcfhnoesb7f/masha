@@ -272,6 +272,8 @@ body { background:linear-gradient(180deg,#0e1621 0%,#0f1a26 100%); }
       <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
         <input type="checkbox" id="relay-tts"><span>Озвучивать её голосом (клонированным, через релей)</span>
       </label>
+      <label style="font-size:12px;color:#8a9ba8;margin-top:10px;display:block;">Её голос на этом компьютере (XTTS)</label>
+      <input id="local-voice-url" placeholder="http://127.0.0.1:8788" value="http://127.0.0.1:8788">
       <div id="tts-status" style="font-size:11px;color:#8a9ba8;margin-top:6px;">…</div>
     </div>
 
@@ -598,7 +600,7 @@ const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя 
    приложение само подставит новый текст, если ты его не правил вручную. */
 const PROMPT_VERSION = 29;
 /* Номер сборки приложения — видно в настройках, чтобы точно знать, какая версия загружена. */
-const BUILD = 30;
+const BUILD = 31;
 
 function applyPromptVersion() {
   const stored = parseInt(localStorage.getItem('masha_promptVersion') || '0', 10);
@@ -2130,8 +2132,38 @@ function speak(text) {
   speakTTS(text);
 }
 
-/* Умная озвучка: клип её голоса → её клонированный голос через релей → обычный синтез. */
+/* Умная озвучка: клип её голоса → локальный сервер её голоса (XTTS) → облачный релей → обычный синтез. */
 let useRelayTts = localStorage.getItem('masha_relayTts') === '1';
+
+function localVoiceUrl() {
+  const raw = localStorage.getItem('masha_localVoice') || 'http://127.0.0.1:8788';
+  return String(raw).trim().replace(/\/+$/, '');
+}
+
+/* Просит локальный сервер озвучить текст. Возвращает ссылку на аудио или null. */
+async function localVoiceBlob(text) {
+  const base = localVoiceUrl();
+  if (!base) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 240000);
+  try {
+    const r = await fetch(base + '/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: String(text).slice(0, 400) }),
+      signal: ctrl.signal
+    });
+    if (!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    if (!buf || buf.byteLength < 200) return null;
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function speakSmart(text) {
   const t = String(text || '').trim();
   if (!t) return;
@@ -2141,17 +2173,32 @@ async function speakSmart(text) {
       () => speakTTS(t));
     return;
   }
-  if (useRelayTts && window.MashaAPI && typeof MashaAPI.tts === 'function') {
+  if (useRelayTts) {
+    // 1) её голос с этого компьютера: готовые фразы звучат мгновенно
+    const hint = setTimeout(() => toast('озвучиваю её голосом…', 'ok'), 2500);
     try {
-      const r = await MashaAPI.tts(t);
-      if (r && r.ok && r.audio) {
-        const url = 'data:' + (r.mime || 'audio/mpeg') + ';base64,' + r.audio;
+      const url = await localVoiceBlob(t);
+      clearTimeout(hint);
+      if (url) {
         const audio = new Audio(url);
         audio.play().catch(() => speakTTS(t));
         currentAudio = audio;
         return;
       }
-    } catch (e) { /* падаем на обычный синтез */ }
+    } catch (e) { clearTimeout(hint); }
+    // 2) облачный релей (ElevenLabs / Fish / OpenAI — если настроены)
+    if (window.MashaAPI && typeof MashaAPI.tts === 'function') {
+      try {
+        const r = await MashaAPI.tts(t);
+        if (r && r.ok && r.audio) {
+          const url = 'data:' + (r.mime || 'audio/mpeg') + ';base64,' + r.audio;
+          const audio = new Audio(url);
+          audio.play().catch(() => speakTTS(t));
+          currentAudio = audio;
+          return;
+        }
+      } catch (e) { /* падаем на обычный синтез */ }
+    }
   }
   speakTTS(t);
 }
@@ -2551,7 +2598,7 @@ function openSettings() {
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
 
-/* Переключатель «озвучивать её голосом» + показываем, настроен ли TTS на релее. */
+/* Переключатель «озвучивать её голосом» + показываем, настроен ли голос. */
 function wireTtsToggle() {
   const el = document.getElementById('relay-tts');
   if (el) {
@@ -2559,25 +2606,51 @@ function wireTtsToggle() {
     el.addEventListener('change', () => {
       useRelayTts = el.checked;
       localStorage.setItem('masha_relayTts', el.checked ? '1' : '0');
-      toast(el.checked ? 'Буду озвучивать её голосом (если настроен релей)' : 'Озвучивание через релей выключено', 'ok');
+      toast(el.checked ? 'Буду озвучивать её голосом' : 'Озвучивание выключено', 'ok');
+    });
+  }
+  const lv = document.getElementById('local-voice-url');
+  if (lv) {
+    lv.value = localVoiceUrl();
+    lv.addEventListener('change', () => {
+      localStorage.setItem('masha_localVoice', String(lv.value || '').trim());
+      toast('Адрес её голоса сохранён', 'ok');
+      updateTtsStatus();
     });
   }
 }
+
+/* Проверяет локальный сервер её голоса и облачный релей, пишет статус в настройках. */
 async function updateTtsStatus() {
   const el = document.getElementById('tts-status');
   if (!el) return;
-  if (!window.MashaAPI || typeof MashaAPI.health !== 'function') { el.textContent = ''; return; }
+  let localInfo = '';
   try {
-    const h = await MashaAPI.health((MashaAPI.getEndpoints && MashaAPI.getEndpoints()[0]) || '', 6000);
-    const tts = h && h.data && h.data.tts;
-    if (tts && tts !== 'не настроено (LOCAL_TTS_URL / ELEVENLABS_KEY+VOICE_ID / FISH_KEY+VOICE_ID / OPENAI_API_KEY)') {
-      el.textContent = 'Голос на релее: ' + tts + ' — включи галочку выше, и она будет говорить им.';
-      el.style.color = '#8ad08a';
-    } else {
-      el.textContent = 'Голос на релее не настроен: в Cloudflare задай LOCAL_TTS_URL, ELEVENLABS_KEY+ELEVENLABS_VOICE_ID или FISH_KEY+FISH_VOICE_ID.';
-      el.style.color = '#8a9ba8';
+    const base = localVoiceUrl();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch(base + '/', { signal: ctrl.signal });
+    clearTimeout(timer);
+    const d = await r.json();
+    if (d && d.ready) localInfo = 'локальный голос готов, фраз в кэше: ' + (d.cache || 0);
+    else if (d && d.loading) localInfo = 'локальный голос загружается (1-3 минуты)';
+    else localInfo = 'локальный голос не готов' + (d && d.error ? ' (' + d.error + ')' : '');
+  } catch (e) {
+    localInfo = 'локальный сервер голоса не запущен';
+  }
+  let cloudInfo = '';
+  try {
+    if (window.MashaAPI && typeof MashaAPI.health === 'function') {
+      const h = await MashaAPI.health((MashaAPI.getEndpoints && MashaAPI.getEndpoints()[0]) || '', 6000);
+      const tts = h && h.data && h.data.tts;
+      if (tts && tts !== 'не настроено (LOCAL_TTS_URL / ELEVENLABS_KEY+VOICE_ID / FISH_KEY+VOICE_ID / OPENAI_API_KEY)') {
+        cloudInfo = 'облачный голос: ' + tts;
+      }
     }
-  } catch (e) { el.textContent = 'не удалось проверить голос на релее'; }
+  } catch (e) { /* ignore */ }
+  const bits = [localInfo, cloudInfo].filter(Boolean);
+  el.textContent = bits.join(' · ') || 'голос не настроен';
+  el.style.color = /готов, фраз/.test(localInfo) ? '#8ad08a' : '#8a9ba8';
 }
 
 function saveSettings() {
