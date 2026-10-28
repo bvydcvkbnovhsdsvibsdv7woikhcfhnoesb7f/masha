@@ -294,6 +294,23 @@
     return !!nav && nav.onLine === false;
   }
 
+  /* Один и тот же релей бывает доступен по разным путям: воркер Cloudflare
+     принимает POST по ЛЮБОМУ пути, но GET-проверка живёт только на «/».
+     Поэтому если адрес ответил страницей вместо JSON — пробуем «брата»:
+     без /api/relay и с /health. Так не приходится угадывать адрес вручную. */
+  function endpointAlternates(url) {
+    var u = String(url || '').replace(/\/+$/, '');
+    var out = [];
+    if (/\/api\/relay$/i.test(u)) {
+      var base = u.replace(/\/api\/relay$/i, '');
+      if (base) { out.push(base); out.push(base + '/health'); }
+    } else {
+      out.push(u + '/api/relay');
+      out.push(u + '/health');
+    }
+    return out.filter(function (x) { return x && x !== u; });
+  }
+
   function runOverEndpoints(builder, options) {
     var opts = options || {};
     var endpoints = opts.endpoints && opts.endpoints.length ? opts.endpoints.slice() : getEndpoints();
@@ -308,6 +325,7 @@
       var idx = order.indexOf(sticky);
       if (idx > 0) { order.splice(idx, 1); order.unshift(sticky); }
     }
+    var triedAlternates = {};
 
     var attempt = function (index, lastErr) {
       if (index >= order.length) {
@@ -335,6 +353,28 @@
         return data;
       }, function (err) {
         log('endpoint failed:', endpoint, err.code || err.message);
+        // Адрес ответил страницей/404 вместо JSON — значит путь не тот. Пробуем «брата».
+        var code = err && err.code;
+        var isFormatProblem = code === 'bad_json' || code === 'http_404' || code === 'http_405' || code === 'bad_shape';
+        var alt = isFormatProblem && !triedAlternates[endpoint] ? endpointAlternates(endpoint)[0] : '';
+        if (alt) {
+          triedAlternates[endpoint] = true;
+          log('пробую другой путь для этого релея:', alt);
+          return postTo(alt, builder(alt), opts.timeoutMs || DEFAULTS.timeoutMs).then(function (data2) {
+            if (typeof opts.validate === 'function') {
+              var problem2 = opts.validate(data2);
+              if (problem2) {
+                markFail(alt, ApiError('bad_shape', problem2, { endpoint: alt }));
+                return attempt(index + 1, err);
+              }
+            }
+            rememberOk(alt);
+            return data2;
+          }, function (err2) {
+            log('альтернативный путь тоже не ответил:', alt, err2 && err2.code);
+            return attempt(index + 1, err);
+          });
+        }
         return attempt(index + 1, err);
       });
     };
@@ -390,32 +430,100 @@
     });
   }
 
+  /* Умное распознавание трека по названию/исполнителю/имени файла (iTunes). */
+  function music(track) {
+    const t = track || {};
+    return runOverEndpoints(function () {
+      return { music: true, title: t.title || '', artist: t.artist || '', filename: t.filename || '' };
+    }, {
+      timeoutMs: DEFAULTS.timeoutMs,
+      validate: function (data) {
+        if (data && typeof data.ok === 'boolean') return null;
+        return 'нет поля ok';
+      }
+    });
+  }
+
+  /* Озвучка текста её голосом (ElevenLabs / Fish / локальный XTTS на релее). */
+  function tts(text) {
+    return runOverEndpoints(function () { return { tts: String(text || '').slice(0, 600) }; }, {
+      // На CPU озвучка одной фразы занимает до 1-2 минут — таймаут с запасом.
+      timeoutMs: 180000,
+      validate: function (data) {
+        if (data && typeof data.ok === 'boolean') return null;
+        return 'нет поля ok';
+      }
+    });
+  }
+
+  /* Распознавание речи из голосового (Groq/OpenAI на релее). */
+  function stt(audio, mime) {
+    return runOverEndpoints(function () { return { stt: true, audio: audio, mime: mime || 'audio/ogg' }; }, {
+      timeoutMs: 45000,
+      validate: function (data) {
+        if (data && typeof data.ok === 'boolean') return null;
+        return 'нет поля ok';
+      }
+    });
+  }
+  /* Название трека/страницы по ссылке (CORS не даёт это сделать из браузера). */
+  function meta(url) {
+    return runOverEndpoints(function () { return { meta: url }; }, {
+      timeoutMs: DEFAULTS.timeoutMs,
+      validate: function (data) {
+        if (data && data.ok === false) return null;          // «не удалось открыть» — не повод менять сервер
+        if (data && (typeof data.title === 'string' || typeof data.description === 'string')) return null;
+        return 'нет поля title';
+      }
+    });
+  }
+
   function health(endpoint, timeoutMs) {
     var url = normalizeEndpoint(endpoint);
     var started = nowMs();
     var limit = timeoutMs || DEFAULTS.healthTimeoutMs;
-    return fetchWithTimeout(url, { method: 'GET', cache: 'no-store' }, limit)
-      .then(function (res) { return readJsonResponse(res, url); })
-      .catch(function (err) {
-        // Бывает, что по адресу живёт ещё и сайт: GET отдаёт HTML страницы, а сам
-        // релей отвечает только на POST. Тогда проверяем его POST-запросом.
-        if (err && (err.code === 'bad_json' || err.code === 'http_404' || err.code === 'http_405')) {
-          return fetchWithTimeout(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ health: true })
-          }, limit).then(function (res2) { return readJsonResponse(res2, url); });
-        }
-        throw err;
-      })
+    var triedAlternates = {};
+
+    function once(u) {
+      return fetchWithTimeout(u, { method: 'GET', cache: 'no-store' }, limit)
+        .then(function (res) { return readJsonResponse(res, u); })
+        .catch(function (err) {
+          // Бывает, что по адресу живёт ещё и сайт: GET отдаёт HTML страницы, а сам
+          // релей отвечает только на POST. Тогда проверяем его POST-запросом.
+          if (err && (err.code === 'bad_json' || err.code === 'http_404' || err.code === 'http_405')) {
+            return fetchWithTimeout(u, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ health: true })
+            }, limit).then(function (res2) { return readJsonResponse(res2, u); });
+          }
+          throw err;
+        });
+    }
+
+    function attemptAt(u, err) {
+      // Если путь не тот (HTML/404) — пробуем «брата»: без /api/relay или с /health.
+      var code = err && err.code;
+      var isFormatProblem = code === 'bad_json' || code === 'http_404' || code === 'http_405';
+      var alt = isFormatProblem && !triedAlternates[u] ? endpointAlternates(u)[0] : '';
+      if (!alt) return Promise.reject(err);
+      triedAlternates[u] = true;
+      return once(alt).then(function (data) { data.__endpoint = alt; return data; }).catch(function () { return Promise.reject(err); });
+    }
+
+    return once(url)
+      .catch(function (err) { return attemptAt(url, err); })
       .then(function (data) {
-        var out = { endpoint: url, ok: true, latencyMs: nowMs() - started, data: data };
+        var used = (data && data.__endpoint) || url;
+        var out = { endpoint: used, ok: true, latencyMs: nowMs() - started, data: data };
         if (data && data.ok === false) {
           out.ok = false;
           out.code = data.error || 'soft_error';
           out.friendly = data.message || data.reply || 'релей ответил ошибкой';
+          return out;
         }
-        markOk(url, out.latencyMs);
+        rememberOk(used);
+        markOk(used, out.latencyMs);
         return out;
       })
       .catch(function (err) {
@@ -467,6 +575,10 @@
     loadEndpoints: loadEndpoints,
     chat: chat,
     initiative: initiative,
+    meta: meta,
+    music: music,
+    stt: stt,
+    tts: tts,
     health: health,
     healthAll: healthAll,
     getStats: getStats,

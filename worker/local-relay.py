@@ -13,6 +13,7 @@ local-relay.py — релей «Маши» на твоём компьютере.
 Релей слушает только этот компьютер — ключ наружу не уходит.
 Остановить: Ctrl+C в окне терминала.
 """
+import base64
 import json
 import os
 import sys
@@ -120,6 +121,81 @@ def sanitize_history(history):
     return clean[-15:]
 
 
+# ---------- озвучка её голосом (локальный XTTS на этом же ПК) ----------
+LOCAL_TTS_URL = os.environ.get("LOCAL_TTS_URL", "http://127.0.0.1:8788/tts")
+LOCAL_TTS_STATUS = LOCAL_TTS_URL.rsplit("/", 1)[0] + "/"
+
+
+def _has_whisper():
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+
+
+def handle_tts_local(body):
+    """Проксируем текст на локальный сервер XTTS и отдаём аудио в base64."""
+    text = str(body.get("tts") or "").strip()[:600]
+    if not text:
+        return 400, soft_error("no_text", "нужен текст для озвучки")
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            LOCAL_TTS_URL,
+            data=json.dumps({"text": text, "language": "ru"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=240) as resp:
+            audio = resp.read()
+            mime = (resp.headers.get("Content-Type") or "audio/wav").split(";")[0]
+        if not audio:
+            return 200, {"ok": False, "tts": True, "error": "tts_empty", "message": "пустое аудио от XTTS"}
+        return 200, {"ok": True, "tts": True, "provider": "local-xtts", "mime": mime,
+                     "audio": base64.b64encode(audio).decode("ascii")}
+    except Exception as e:
+        return 200, {"ok": False, "tts": True, "error": "tts_failed",
+                     "message": "локальный XTTS не ответил (" + str(e) + "). Запусти: python tools/xtts-server.py"}
+
+
+def handle_stt_local(body):
+    """Локальный Whisper: pip install faster-whisper (модель скачается сама).
+    Если пакета нет — честно говорим, что нужно поставить."""
+    b64 = body.get("audio") or ""
+    if not b64:
+        return 400, soft_error("no_audio", "нет аудио для распознавания")
+    try:
+        import base64, tempfile
+        raw = base64.b64decode(re.sub(r"^data:[^;]+;base64,", "", b64))
+    except Exception:
+        return 400, soft_error("bad_audio", "аудио не декодируется")
+    try:
+        from faster_whisper import WhisperModel
+    except Exception:
+        return 200, {
+            "ok": False, "stt": False, "error": "no_local_whisper",
+            "message": "локальное распознавание не установлено. Выполни: pip install faster-whisper"
+        }
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
+            f.write(raw)
+            path = f.name
+        model = WhisperModel("small", device="cpu", compute_type="int8")
+        segments, _info = model.transcribe(path, language="ru", vad_filter=True)
+        text = " ".join(s.text.strip() for s in segments).strip()
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+        return 200, {"ok": bool(text), "stt": True, "provider": "local-whisper", "text": text,
+                     "message": "" if text else "речь не распознана"}
+    except Exception as e:
+        return 200, {"ok": False, "stt": True, "error": "stt_failed", "message": "не удалось распознать: " + str(e)}
+
+
 def handle_initiative(body):
     st = body.get("state") or {}
     now = time.strftime("%d.%m.%Y %H:%M")
@@ -222,6 +298,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         key = api_key()
+        # проверяем, поднят ли локальный сервер голоса
+        tts_state = "не запущен"
+        try:
+            with urllib.request.urlopen(LOCAL_TTS_STATUS, timeout=3) as r:
+                d = json.loads(r.read().decode("utf-8"))
+                if d.get("ready"):
+                    tts_state = "local-xtts (фраз в кэше: %s)" % d.get("cache", 0)
+                elif d.get("loading"):
+                    tts_state = "local-xtts (загружается)"
+                else:
+                    tts_state = "local-xtts (ошибка: %s)" % (d.get("error") or "не готов")
+        except Exception:
+            pass
         self._send(200, {
             "ok": True,
             "service": "masha-relay",
@@ -230,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
             "hasKey": bool(key),
             "models": {"text": TEXT_MODEL, "vision": VISION_MODEL},
             "thoughts": THOUGHTS,
+            "stt": "local-whisper (если установлен faster-whisper)" if _has_whisper() else "не настроено (pip install faster-whisper)",
+            "tts": tts_state,
             "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "hint": "релей жив, ключ на месте" if key else "не задан DEEPSEEK_API_KEY",
         })
@@ -249,6 +340,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, soft_error("bad_json", "некорректный JSON в теле запроса"))
                 return
 
+            # Распознавание речи, треки и озвучка не требуют ключа DeepSeek
+            if body.get("meta") or body.get("music") or body.get("stt") or body.get("tts"):
+                if body.get("stt"):
+                    status, data = handle_stt_local(body)
+                elif body.get("tts"):
+                    status, data = handle_tts_local(body)
+                else:
+                    status, data = 200, {"ok": False, "error": "not_supported_locally",
+                                         "message": "локальный релей умеет распознавание речи и озвучку"}
+                self._send(status, data)
+                return
+
             if not api_key():
                 self._send(500, soft_error("no_api_key", "не задан DEEPSEEK_API_KEY"))
                 return
@@ -265,12 +368,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     if not api_key():
+        # Без ключа релей всё равно полезен: работают озвучка и распознавание речи.
         print()
-        print("НЕ ЗАДАН КЛЮЧ DeepSeek. Запусти так:")
+        print("ВНИМАНИЕ: не задан DEEPSEEK_API_KEY — переписка работать не будет,")
+        print("но ОЗВУЧКА и РАСПОЗНАВАНИЕ РЕЧИ работают. Ключ задаётся так:")
         print('   PowerShell:  $env:DEEPSEEK_API_KEY="sk-..."; python worker/local-relay.py')
         print("   cmd:         set DEEPSEEK_API_KEY=sk-... && python worker/local-relay.py")
         print()
-        return 2
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print()
     print("  [OK] Локальный релей «Маши» запущен (Python)")

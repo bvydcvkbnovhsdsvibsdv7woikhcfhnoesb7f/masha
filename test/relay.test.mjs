@@ -221,7 +221,7 @@ test('клиент: HTML вместо JSON — понятная ошибка, з
   const data = await api.chat({ text: 'привет' });
   assert.equal(data.reply, 'и я тебя');
   assert.match(data.__endpoint, /backup/);
-  assert.equal(calls.length, 2);
+  assert.ok(calls.length >= 2, 'попытки: ' + calls.join(', '));
 
   // 404 HTML -> код http_404 с понятным текстом
   api.setEndpoints(['https://dead.test/api/relay']);
@@ -352,4 +352,27 @@ test('клиент: офлайн, мягкие ошибки и status()', async 
   assert.equal(st.allDead, true, 'после ошибки сервер считается недоступным');
   api.resetCooldowns();
   assert.equal(api.status().allDead, false);
+});
+
+test('клиент: адрес воркера с /api/relay, отдающий HTML, сам находит рабочий путь', async () => {
+  // эмулируем реальную ситуацию: у воркера GET живёт только на «/», а по /api/relay
+  // приходит HTML-страница. Клиент должен сам попробовать «/» и получить JSON.
+  const origFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('/api/relay')) {
+      return new Response('<!DOCTYPE html><html>not found</html>', { status: 404, headers: { 'Content-Type': 'text/html' } });
+    }
+    return new Response(JSON.stringify({ ok: true, service: 'masha-relay', hasKey: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const api = require('../js/api-client.js');
+    const res = await api.health('https://masha.test.workers.dev/api/relay', 3000);
+    assert.equal(res.ok, true, 'должен найти рабочий путь: ' + JSON.stringify(res));
+    assert.match(res.endpoint, /masha\.test\.workers\.dev\/?$/, 'запомнил рабочий адрес: ' + res.endpoint);
+    assert.ok(calls.length >= 2, 'было больше одной попытки');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

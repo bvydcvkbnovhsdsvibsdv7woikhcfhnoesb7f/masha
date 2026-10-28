@@ -1,0 +1,653 @@
+{
+ "_инструкция": "Прослушай файлы из voice/clips/ (это её короткие голосовые 1-3 сек) и впиши в text, что она говорит. Пустой text = файл не используется. Готовые записи можно вписать и в voice/clips.json.",
+ "clips": [
+  {
+   "text": "",
+   "file": "voice/clips/her_2024-08-25_1s_573202.ogg",
+   "duration": 1,
+   "date": "2024-08-25"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_1s_691833.ogg",
+   "duration": 1,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-06_1s_704437.ogg",
+   "duration": 1,
+   "date": "2025-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-06_1s_704444.ogg",
+   "duration": 1,
+   "date": "2025-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-07_1s_706300.ogg",
+   "duration": 1,
+   "date": "2025-01-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-16_1s_720270.ogg",
+   "duration": 1,
+   "date": "2025-01-16"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-02-22_1s_760139.ogg",
+   "duration": 1,
+   "date": "2025-02-22"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-03-24_1s_776409.ogg",
+   "duration": 1,
+   "date": "2025-03-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-03-25_1s_777358.ogg",
+   "duration": 1,
+   "date": "2025-03-25"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-04_1s_788411.ogg",
+   "duration": 1,
+   "date": "2025-04-04"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-04_1s_788424.ogg",
+   "duration": 1,
+   "date": "2025-04-04"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301070.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301093.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301097.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301098.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301099.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301106.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301108.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301109.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301110.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301111.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301113.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_1s_301114.ogg",
+   "duration": 1,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-05-08_1s_329699.ogg",
+   "duration": 1,
+   "date": "2025-05-08"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-05-24_1s_340392.ogg",
+   "duration": 1,
+   "date": "2025-05-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-05-27_1s_344175.ogg",
+   "duration": 1,
+   "date": "2025-05-27"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-07_1s_354774.ogg",
+   "duration": 1,
+   "date": "2025-06-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-07_1s_354775.ogg",
+   "duration": 1,
+   "date": "2025-06-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-07_1s_354776.ogg",
+   "duration": 1,
+   "date": "2025-06-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-18_1s_409409.ogg",
+   "duration": 1,
+   "date": "2025-07-18"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-05_1s_427111.ogg",
+   "duration": 1,
+   "date": "2025-08-05"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-07_1s_428393.ogg",
+   "duration": 1,
+   "date": "2025-08-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-18_1s_440978.ogg",
+   "duration": 1,
+   "date": "2025-08-18"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-18_1s_440988.ogg",
+   "duration": 1,
+   "date": "2025-08-18"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-24_1s_449180.ogg",
+   "duration": 1,
+   "date": "2025-08-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-24_1s_449241.ogg",
+   "duration": 1,
+   "date": "2025-08-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-25_1s_450297.ogg",
+   "duration": 1,
+   "date": "2025-08-25"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-09-21_1s_480760.ogg",
+   "duration": 1,
+   "date": "2025-09-21"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-01-06_1s_550521.ogg",
+   "duration": 1,
+   "date": "2026-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-01-06_1s_550535.ogg",
+   "duration": 1,
+   "date": "2026-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-01-06_1s_550538.ogg",
+   "duration": 1,
+   "date": "2026-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_2s_691784.ogg",
+   "duration": 2,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_2s_691797.ogg",
+   "duration": 2,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_2s_691798.ogg",
+   "duration": 2,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_2s_691828.ogg",
+   "duration": 2,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_2s_691834.ogg",
+   "duration": 2,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-06_2s_702248.ogg",
+   "duration": 2,
+   "date": "2025-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-06_2s_703394.ogg",
+   "duration": 2,
+   "date": "2025-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301086.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301087.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301088.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301092.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301094.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_2s_301096.ogg",
+   "duration": 2,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-05-22_2s_338318.ogg",
+   "duration": 2,
+   "date": "2025-05-22"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-14_2s_364851.ogg",
+   "duration": 2,
+   "date": "2025-06-14"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_2s_378175.ogg",
+   "duration": 2,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_2s_379443.ogg",
+   "duration": 2,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-28_2s_385888.ogg",
+   "duration": 2,
+   "date": "2025-06-28"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-14_2s_405486.ogg",
+   "duration": 2,
+   "date": "2025-07-14"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-31_2s_424191.ogg",
+   "duration": 2,
+   "date": "2025-07-31"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-03_2s_426477.ogg",
+   "duration": 2,
+   "date": "2025-08-03"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-05_2s_427204.ogg",
+   "duration": 2,
+   "date": "2025-08-05"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-08_2s_429791.ogg",
+   "duration": 2,
+   "date": "2025-08-08"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-10_2s_432305.ogg",
+   "duration": 2,
+   "date": "2025-08-10"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-14_2s_436194.ogg",
+   "duration": 2,
+   "date": "2025-08-14"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-25_2s_450296.ogg",
+   "duration": 2,
+   "date": "2025-08-25"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-25_2s_450322.ogg",
+   "duration": 2,
+   "date": "2025-08-25"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-09-08_2s_464303.ogg",
+   "duration": 2,
+   "date": "2025-09-08"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-01-18_2s_558210.ogg",
+   "duration": 2,
+   "date": "2026-01-18"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2024-08-27_3s_574250.ogg",
+   "duration": 3,
+   "date": "2024-08-27"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2024-08-28_3s_574808.ogg",
+   "duration": 3,
+   "date": "2024-08-28"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2024-08-28_3s_574885.ogg",
+   "duration": 3,
+   "date": "2024-08-28"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_3s_691801.ogg",
+   "duration": 3,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-01_3s_691813.ogg",
+   "duration": 3,
+   "date": "2025-01-01"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-01-08_3s_706790.ogg",
+   "duration": 3,
+   "date": "2025-01-08"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301074.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301076.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301077.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301089.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301090.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-04-20_3s_301101.ogg",
+   "duration": 3,
+   "date": "2025-04-20"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-07_3s_354795.ogg",
+   "duration": 3,
+   "date": "2025-06-07"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-14_3s_364839.ogg",
+   "duration": 3,
+   "date": "2025-06-14"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_3s_378182.ogg",
+   "duration": 3,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_3s_378183.ogg",
+   "duration": 3,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_3s_379421.ogg",
+   "duration": 3,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-06-24_3s_379442.ogg",
+   "duration": 3,
+   "date": "2025-06-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-04_3s_394814.ogg",
+   "duration": 3,
+   "date": "2025-07-04"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-05_3s_396425.ogg",
+   "duration": 3,
+   "date": "2025-07-05"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-07-13_3s_405106.ogg",
+   "duration": 3,
+   "date": "2025-07-13"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-10_3s_432180.ogg",
+   "duration": 3,
+   "date": "2025-08-10"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-11_3s_433718.ogg",
+   "duration": 3,
+   "date": "2025-08-11"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-16_3s_438594.ogg",
+   "duration": 3,
+   "date": "2025-08-16"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-17_3s_439571.ogg",
+   "duration": 3,
+   "date": "2025-08-17"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-21_3s_445667.ogg",
+   "duration": 3,
+   "date": "2025-08-21"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-24_3s_448922.ogg",
+   "duration": 3,
+   "date": "2025-08-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-24_3s_449156.ogg",
+   "duration": 3,
+   "date": "2025-08-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-24_3s_449164.ogg",
+   "duration": 3,
+   "date": "2025-08-24"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-26_3s_450981.ogg",
+   "duration": 3,
+   "date": "2025-08-26"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-26_3s_451474.ogg",
+   "duration": 3,
+   "date": "2025-08-26"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-08-28_3s_453123.ogg",
+   "duration": 3,
+   "date": "2025-08-28"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-09-06_3s_461791.ogg",
+   "duration": 3,
+   "date": "2025-09-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-10-15_3s_505906.ogg",
+   "duration": 3,
+   "date": "2025-10-15"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-10-21_3s_509254.ogg",
+   "duration": 3,
+   "date": "2025-10-21"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2025-12-31_3s_547319.ogg",
+   "duration": 3,
+   "date": "2025-12-31"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-01-06_3s_550181.ogg",
+   "duration": 3,
+   "date": "2026-01-06"
+  },
+  {
+   "text": "",
+   "file": "voice/clips/her_2026-02-06_3s_569347.ogg",
+   "duration": 3,
+   "date": "2026-02-06"
+  }
+ ]
+}

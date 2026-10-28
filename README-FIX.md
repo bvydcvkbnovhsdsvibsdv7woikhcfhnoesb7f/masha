@@ -188,3 +188,9 @@ node tools/build-archive.mjs --in source/*.json \
 4. GitHub → **Actions → Build Android APK → Run workflow** → скачать masha-apk-debug → установить.
 5. Проверить: «как тебя зовут?» → Маша; «как мы познакомились?» → Дайвинчик; «приезжай ко мне» → она ответит
    как о плане, а не «помню, как мы гуляли» (встреч не было).
+
+---
+
+## Распознавание голосовых (ГС)
+
+Подробно: oice/РАСПОЗНАВАНИЕ-РЕЧИ.md. Кратко: Cloudflare Workers → твой воркер → Settings → Bindings → Add → Workers AI → имя **AI** → Deploy. Всё, голосовые распознаются бесплатно.

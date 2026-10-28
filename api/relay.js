@@ -67,6 +67,17 @@ function configFrom(env) {
     // deepseek-v4.1-flash в API НЕ существует (проверено запросом: поддерживаются
     // deepseek-flash и deepseek-v4-pro), поэтому для фото тоже используем flash.
     visionModel: e.DEEPSEEK_VISION_MODEL || 'deepseek-flash',
+    // Распознавание речи (голосовые). Порядок: Workers AI → Groq → OpenAI → Hugging Face.
+    ai: e.AI || null,
+    groqKey: e.GROQ_API_KEY || '',
+    openaiKey: e.OPENAI_API_KEY || '',
+    hfToken: e.HF_TOKEN || '',
+    // озвучка её голосом: локальный XTTS / ElevenLabs / Fish / OpenAI
+    localTtsUrl: e.LOCAL_TTS_URL || '',
+    elevenKey: e.ELEVENLABS_KEY || '',
+    elevenVoice: e.ELEVENLABS_VOICE_ID || '',
+    fishKey: e.FISH_KEY || '',
+    fishVoice: e.FISH_VOICE_ID || '',
     baseUrl: e.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions',
     thoughts: String(e.DEEPSEEK_THOUGHTS === undefined ? '1' : e.DEEPSEEK_THOUGHTS) !== '0',
     timeoutMs: num(e.RELAY_TIMEOUT_MS, 30000),
@@ -255,6 +266,8 @@ function diagnostics(cfg, host) {
     host: host || 'cloudflare-worker',
     hasKey: !!cfg.key,
     models: { text: cfg.textModel, vision: cfg.visionModel },
+    stt: sttProvider(cfg) || 'не настроено (Workers AI binding AI, или GROQ_API_KEY / OPENAI_API_KEY / HF_TOKEN)',
+    tts: ttsProvider(cfg) || 'не настроено (LOCAL_TTS_URL / ELEVENLABS_KEY+VOICE_ID / FISH_KEY+VOICE_ID / OPENAI_API_KEY)',
     timeoutMs: cfg.timeoutMs,
     thoughts: cfg.thoughts,
     time: new Date().toISOString(),
@@ -264,6 +277,313 @@ function diagnostics(cfg, host) {
   };
 }
 
+/* Название трека по ссылке: сервер открывает страницу и достаёт og:title.
+   Нужно, чтобы Маша понимала, какую музыку ей скинули (в браузере так нельзя — CORS). */
+async function handleMeta(body, cfg) {
+  const raw = typeof body.meta === 'string' ? body.meta.trim() : '';
+  let target;
+  try { target = new URL(raw); } catch (e) {
+    return { status: 400, data: softError('bad_url', 'нужна ссылка http(s)://…') };
+  }
+  if (!/^https?:$/i.test(target.protocol)) {
+    return { status: 400, data: softError('bad_url', 'поддерживаются только http и https') };
+  }
+  if (/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(target.hostname)) {
+    return { status: 400, data: softError('bad_url', 'внутренние адреса не открываю') };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(target.href, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MashaRelay/1.0)',
+        'Accept': 'text/html,application/xhtml+xml'
+      }
+    });
+    const html = (await res.text()).slice(0, 400000);
+    const pick = (rx) => { const m = rx.exec(html); return m ? decodeEntities(m[1]).trim() : ''; };
+    const title = pick(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+      || pick(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)
+      || pick(/<title[^>]*>([^<]{1,200})<\/title>/i);
+    const description = pick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+      || pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+    const image = pick(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+    return {
+      status: 200,
+      data: { ok: true, url: target.href, title: title.slice(0, 200), description: description.slice(0, 300), image: image.slice(0, 500) }
+    };
+  } catch (e) {
+    return { status: 200, data: { ok: false, error: 'meta_failed', message: 'не удалось открыть ссылку: ' + ((e && e.message) || e), url: target.href } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function decodeEntities(s) {
+  return String(s || '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (m, d) => String.fromCharCode(parseInt(d, 10)));
+}
+
+/* Умное распознавание трека: берём что есть (теги, имя файла, ссылку) и ищем
+   в бесплатной базе iTunes (без ключа) — получаем исполнителя, название, альбом,
+   обложку, жанр и 30-секундный превью-фрагмент. */
+function guessTrackQuery(body) {
+  const parts = [];
+  const push = (v) => { if (v && typeof v === 'string') parts.push(v.replace(/\s+/g, ' ').trim()); };
+  push(body.artist);
+  push(body.title);
+  if (!parts.length && body.filename) push(body.filename.replace(/\.[a-z0-9]+$/i, ''));
+  const q = parts.join(' ').replace(/[\[\](){}]/g, ' ')
+    .replace(/\b(official|video|lyrics?|audio|remix|prod\.?\s*\S+|feat\.?\s*\S+|ft\.?\s*\S+|128|192|256|320|kbps|hq|hd)\b/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return q.slice(0, 120);
+}
+
+async function handleMusic(body, cfg) {
+  const q = guessTrackQuery(body);
+  if (!q) return { status: 400, data: softError('empty_query', 'нужно название или файл трека') };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const url = 'https://itunes.apple.com/search?media=music&limit=5&country=RU&term=' + encodeURIComponent(q);
+    const res = await fetch(url, { signal: controller.signal, headers: { 'Accept': 'application/json' } });
+    const data = await res.json();
+    const list = (data && data.results) || [];
+    if (!list.length) {
+      return { status: 200, data: { ok: false, error: 'not_found', query: q, message: 'трек не нашёлся' } };
+    }
+    // выбираем лучшее совпадение: сравниваем слова запроса с названием/исполнителем
+    const words = q.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const scoreOf = (it) => {
+      const hay = ((it.trackName || '') + ' ' + (it.artistName || '')).toLowerCase();
+      let s = 0;
+      for (const w of words) if (hay.indexOf(w) !== -1) s += 1;
+      return s;
+    };
+    list.sort((a, b) => scoreOf(b) - scoreOf(a));
+    const best = list[0];
+    return {
+      status: 200,
+      data: {
+        ok: true,
+        query: q,
+        artist: best.artistName || '',
+        title: best.trackName || '',
+        album: best.collectionName || '',
+        genre: best.primaryGenreName || '',
+        year: (best.releaseDate || '').slice(0, 4),
+        artwork: (best.artworkUrl100 || '').replace('100x100', '300x300'),
+        preview: best.previewUrl || '',
+        durationSec: best.trackTimeMillis ? Math.round(best.trackTimeMillis / 1000) : 0,
+        alternatives: list.slice(1, 4).map(it => ({ artist: it.artistName || '', title: it.trackName || '' }))
+      }
+    };
+  } catch (e) {
+    return { status: 200, data: { ok: false, error: 'music_failed', query: q, message: 'не удалось найти трек: ' + ((e && e.message) || e) } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Распознавание голосового: текст из аудио. Поддерживаем несколько движков,
+   чтобы не зависеть от одного сервиса:
+   1) Cloudflare Workers AI (binding AI) — бесплатно, уже внутри твоего воркера;
+   2) Groq (GROQ_API_KEY) — бесплатный тариф;
+   3) OpenAI (OPENAI_API_KEY);
+   4) Hugging Face (HF_TOKEN) — бесплатный тариф. */
+function sttProvider(cfg) {
+  if (cfg.ai && typeof cfg.ai.run === 'function') return 'cloudflare';
+  if (cfg.groqKey) return 'groq';
+  if (cfg.openaiKey) return 'openai';
+  if (cfg.hfToken) return 'huggingface';
+  return '';
+}
+
+async function handleStt(body, cfg) {
+  const audio = typeof body.audio === 'string' ? body.audio : '';
+  if (!audio) return { status: 400, data: softError('no_audio', 'нет аудио для распознавания') };
+  const mime = body.mime || 'audio/ogg';
+  const provider = sttProvider(cfg);
+  if (!provider) {
+    return {
+      status: 200,
+      data: {
+        ok: false, error: 'no_stt_key', stt: false,
+        message: 'распознавание голосовых не настроено. Проще всего: Cloudflare → Workers → твой воркер → Settings → Bindings → Add → Workers AI → имя AI. Или добавь секрет GROQ_API_KEY / HF_TOKEN.'
+      }
+    };
+  }
+  let buf;
+  try {
+    buf = base64ToArrayBuffer(audio);
+  } catch (e) {
+    return { status: 400, data: softError('bad_audio', 'аудио не декодируется') };
+  }
+  const started = Date.now();
+  try {
+    if (provider === 'cloudflare') {
+      // Workers AI: Whisper принимает массив байтов
+      const out = await cfg.ai.run('@cf/openai/whisper-large-v3-turbo', { audio: Array.from(new Uint8Array(buf)) });
+      const text = String((out && (out.text || (out.result && out.result.text))) || '').trim();
+      return { status: 200, data: { ok: !!text, stt: true, provider: provider, text: text, ms: Date.now() - started, message: text ? '' : 'речь не распознана' } };
+    }
+    if (provider === 'huggingface') {
+      const res = await fetch('https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + cfg.hfToken, 'Content-Type': mime },
+        body: new Uint8Array(buf)
+      });
+      const raw = await res.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch (e) { data = null; }
+      const text = String((data && (data.text || (Array.isArray(data) && data[0] && data[0].text))) || '').trim();
+      if (!res.ok) return { status: 200, data: { ok: false, error: 'stt_' + res.status, stt: true, provider: provider, message: raw.slice(0, 200) } };
+      return { status: 200, data: { ok: !!text, stt: true, provider: provider, text: text, ms: Date.now() - started, message: text ? '' : 'речь не распознана' } };
+    }
+    // groq / openai — одинаковый OpenAI-совместимый протокол
+    const form = new FormData();
+    form.append('file', new Blob([buf], { type: mime }), 'voice.' + (mime.split('/')[1] || 'ogg'));
+    form.append('model', provider === 'groq' ? 'whisper-large-v3' : 'whisper-1');
+    form.append('language', 'ru');
+    form.append('response_format', 'json');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const url = provider === 'groq'
+        ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+        : 'https://api.openai.com/v1/audio/transcriptions';
+      const key = provider === 'groq' ? cfg.groqKey : cfg.openaiKey;
+      const res = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: form, signal: controller.signal });
+      const raw = await res.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch (e) { data = null; }
+      if (!res.ok) {
+        return { status: 200, data: { ok: false, error: 'stt_' + res.status, stt: true, provider: provider, message: (data && data.error && data.error.message) || raw.slice(0, 200) } };
+      }
+      const text = String((data && data.text) || '').trim();
+      return { status: 200, data: { ok: !!text, stt: true, provider: provider, text: text, ms: Date.now() - started, message: text ? '' : 'речь не распознана' } };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return { status: 200, data: { ok: false, error: 'stt_failed', stt: true, provider: provider, message: 'не удалось распознать: ' + ((e && e.message) || e) } };
+  }
+}
+
+function base64ToArrayBuffer(b64) {
+  const clean = String(b64).replace(/^data:[^;]+;base64,/, '');
+  const bin = atob(clean);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+/* Озвучка ЛЮБОГО текста её голосом. Провайдеры по приоритету:
+   1) LOCAL_TTS_URL — клонированный голос на своём ПК (XTTS v2) — бесплатно, любой текст;
+   2) ELEVENLABS_KEY + ELEVENLABS_VOICE_ID — облачное клонирование;
+   3) FISH_KEY + FISH_VOICE_ID — облачное клонирование;
+   4) OPENAI_API_KEY — голоса OpenAI (без клонирования, но живые). */
+function ttsProvider(cfg) {
+  if (cfg.localTtsUrl) return 'local';
+  if (cfg.elevenKey && cfg.elevenVoice) return 'elevenlabs';
+  if (cfg.fishKey && cfg.fishVoice) return 'fish';
+  if (cfg.openaiKey) return 'openai';
+  return '';
+}
+
+async function handleTts(body, cfg) {
+  const text = typeof body.tts === 'string' ? body.tts.trim().slice(0, 600) : '';
+  if (!text) return { status: 400, data: softError('no_text', 'нужен текст для озвучки') };
+  const provider = ttsProvider(cfg);
+  if (!provider) {
+    return {
+      status: 200,
+      data: {
+        ok: false, error: 'no_tts', tts: false,
+        message: 'озвучка её голосом не настроена: нужен LOCAL_TTS_URL (XTTS на своём ПК), или ELEVENLABS_KEY+ELEVENLABS_VOICE_ID, или FISH_KEY+FISH_VOICE_ID'
+      }
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  try {
+    if (provider === 'local') {
+      // локальный сервер XTTS: принимает {text, speaker_wav}, отдаёт аудио
+      const res = await fetch(cfg.localTtsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text, language: 'ru' }),
+        signal: controller.signal
+      });
+      if (!res.ok) return { status: 200, data: { ok: false, error: 'tts_local_' + res.status, tts: true, provider: provider } };
+      const buf = await res.arrayBuffer();
+      const mime = (res.headers.get('content-type') || 'audio/wav').split(';')[0];
+      return { status: 200, data: { ok: true, tts: true, provider: provider, mime: mime, audio: arrayBufferToBase64(buf) } };
+    }
+    if (provider === 'elevenlabs') {
+      const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(cfg.elevenVoice) + '?output_format=mp3_44100_128', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'xi-api-key': cfg.elevenKey, 'Accept': 'audio/mpeg' },
+        body: JSON.stringify({ text: text, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.45, similarity_boost: 0.8, style: 0.35 } }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const raw = await res.text();
+        return { status: 200, data: { ok: false, error: 'tts_' + res.status, tts: true, provider: provider, message: raw.slice(0, 200) } };
+      }
+      const buf = await res.arrayBuffer();
+      return { status: 200, data: { ok: true, tts: true, provider: provider, mime: 'audio/mpeg', audio: arrayBufferToBase64(buf) } };
+    }
+    if (provider === 'fish') {
+      const res = await fetch('https://api.fish.audio/v1/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.fishKey },
+        body: JSON.stringify({ text: text, reference_id: cfg.fishVoice, format: 'mp3', mp3_bitrate: 128 }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const raw = await res.text();
+        return { status: 200, data: { ok: false, error: 'tts_' + res.status, tts: true, provider: provider, message: raw.slice(0, 200) } };
+      }
+      const buf = await res.arrayBuffer();
+      return { status: 200, data: { ok: true, tts: true, provider: provider, mime: 'audio/mpeg', audio: arrayBufferToBase64(buf) } };
+    }
+    // OpenAI TTS
+    const res = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.openaiKey },
+      body: JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', input: text, response_format: 'mp3' }),
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      const raw = await res.text();
+      return { status: 200, data: { ok: false, error: 'tts_' + res.status, tts: true, provider: provider, message: raw.slice(0, 200) } };
+    }
+    const buf = await res.arrayBuffer();
+    return { status: 200, data: { ok: true, tts: true, provider: provider, mime: 'audio/mpeg', audio: arrayBufferToBase64(buf) } };
+  } catch (e) {
+    return { status: 200, data: { ok: false, error: 'tts_failed', tts: true, provider: provider, message: 'не удалось озвучить: ' + ((e && e.message) || e) } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
 async function processRequest(body, cfg) {
   // Проверка «жив ли релей» через POST. Нужна там, где по этому адресу отдаётся
   // ещё и сайт (Cloudflare Workers + статика): GET перехватывает страница-заглушка,
@@ -271,6 +591,10 @@ async function processRequest(body, cfg) {
   if (body && body.health) {
     return { status: 200, data: diagnostics(cfg, 'post-health') };
   }
+  if (body && body.meta) return handleMeta(body, cfg);
+  if (body && body.music) return handleMusic(body, cfg);
+  if (body && body.stt) return handleStt(body, cfg);
+  if (body && body.tts) return handleTts(body, cfg);
   if (body && body.checkInitiative) return handleInitiative(body, cfg);
   return handleChat(body, cfg);
 }
@@ -295,6 +619,13 @@ const __relay = {
 
     const parsed = await parseRequestBody(request);
     if (!parsed.ok) return json(400, softError(parsed.code, parsed.detail));
+
+    // Разбор ссылки, трека и распознавание речи не требуют ключа DeepSeek —
+    // работают и без него (распознавание речи берёт свой ключ GROQ/OPENAI).
+    if (parsed.body && (parsed.body.meta || parsed.body.music || parsed.body.stt || parsed.body.tts)) {
+      const extra = await processRequest(parsed.body, cfg);
+      return json(extra.status, extra.data);
+    }
 
     if (!cfg.key) {
       return json(500, softError('no_api_key', 'в воркере не настроен секрет DEEPSEEK_API_KEY'));

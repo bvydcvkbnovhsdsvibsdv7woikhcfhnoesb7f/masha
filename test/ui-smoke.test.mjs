@@ -1,4 +1,4 @@
-﻿/* Смоук-тест index.html: запускаем настоящий inline-скрипт в vm с мини-DOM. */
+/* Смоук-тест index.html: запускаем настоящий inline-скрипт в vm с мини-DOM. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -165,7 +165,7 @@ test('промпт: версия подставляется автоматиче
   await new Promise(r => setTimeout(r, 60));
 
   // свежая установка: промпт отмечается текущей версией и содержит данные из архива
-  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '20');
+  assert.equal(app.sandbox.localStorage.getItem('masha_promptVersion'), '29');
   const prompt = app.eval('state.prompt');
   assert.match(prompt, /Виктория|Вика/);
   assert.match(prompt, /лошад/, 'в промпте должны быть её внутренние шутки из архива');
@@ -205,6 +205,8 @@ test('её ответ дробится на серии, а «чё» правит
   assert.equal(app.call('herize', 'Ты чё там'), 'Ты чо там');
   assert.equal(app.call('herize', 'Че'), 'Чо');
   assert.equal(app.call('herize', 'М?'), 'А?', '«М?» — не её слово, заменяем на «А?»');
+  assert.equal(app.call('herize', 'Сам дурак'), 'Дурак', '«Сам дурак» — не её фраза (0 раз в архиве)');
+  assert.equal(app.call('herize', 'САМ ДУРА!'), 'Дурак');
   assert.equal(app.call('breakFillerRun', '-_-', '-_-'), '?', 'две пустышки подряд не повторяем');
   assert.equal(app.call('breakFillerRun', 'Нормально', '-_-'), '-_-', 'если предыдущее не пустышка — не трогаем');
   assert.equal(app.call('herize', 'Почекай'), 'Почекай', 'внутри слов не трогаем');

@@ -9,19 +9,21 @@
 
   var LOG_KEY = 'masha_initiative_log';
 
+  /* Инициатива свободная: она решает сама. Ограничения оставлены только
+     как защита от спама — не чаще раза в 10 минут и не больше 40 сообщений в день. */
   var CONFIG = {
     tz: 'Asia/Krasnoyarsk',
-    activeFromHour: 8,
-    activeToHour: 23.5,
-    minSilenceMs: 40 * 60 * 1000,
-    minGapMs: 45 * 60 * 1000,
-    dailyMax: 6,
-    ignoredBackoffMs: 4 * 60 * 60 * 1000,
-    ignoredThreshold: 3,
+    activeFromHour: 0,
+    activeToHour: 24,
+    minSilenceMs: 10 * 60 * 1000,
+    minGapMs: 10 * 60 * 1000,
+    dailyMax: 40,
+    ignoredBackoffMs: 2 * 60 * 60 * 1000,
+    ignoredThreshold: 5,
     tickMs: 5 * 60 * 1000,
-    morning: { from: 8, to: 12, silenceMs: 8 * 60 * 60 * 1000, urgency: 0.95 },
-    evening: { from: 19, to: 23.5, silenceMs: 3 * 60 * 60 * 1000, urgency: 0.85 },
-    casual: { silenceMs: 2 * 60 * 60 * 1000, urgency: 0.45 },
+    morning: { from: 6, to: 12, silenceMs: 6 * 60 * 60 * 1000, urgency: 0.95 },
+    evening: { from: 18, to: 24, silenceMs: 2 * 60 * 60 * 1000, urgency: 0.85 },
+    casual: { silenceMs: 45 * 60 * 1000, urgency: 0.55 },
     eventUrgency: 1
   };
 
@@ -112,7 +114,12 @@
     function shouldAttempt(st, ts) {
       ts = ts || nowFn();
       st = st || getState();
-      if (st.userStatus === 'sleeping') return { ok: false, reason: 'он спит' };
+      if (st.userStatus === 'sleeping') {
+        // Статус «спит» не должен висеть вечно: если с его сообщения прошёл час —
+        // считаем, что он уже не спит (иначе она замолкает навсегда).
+        var sinceSleepMin = st.lastUserMessageTime ? (ts - st.lastUserMessageTime) / 60000 : 999;
+        if (sinceSleepMin < 60) return { ok: false, reason: 'он спит' };
+      }
 
       var hour = hourInTz(ts, config.tz);
       if (hour < config.activeFromHour || hour >= config.activeToHour) return { ok: false, reason: 'ночь, не пишу' };
