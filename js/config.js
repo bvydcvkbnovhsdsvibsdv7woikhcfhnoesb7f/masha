@@ -4,11 +4,8 @@
    можно один раз задать переменную репозитория MASHA_ENDPOINTS
    (GitHub → Settings → Secrets and variables → Actions → Variables).
 
-   masha-relay — рабочий релей в Cloudflare (переписка, фото, музыка, распознавание речи).
-   Остальные — запасные адреса на случай сбоя основного. */
+   Основной релей: masha-relay (Cloudflare Workers) — переписка, фото, музыка,
+   распознавание речи (Workers AI). Сайт приложения: GitHub Pages. */
 window.MASHA_DEFAULT_ENDPOINTS = [
-  'https://masha-relay.lusnikoveduard9.workers.dev',
-  'https://masha.lusnikoveduard9.workers.dev',
-  'https://masha-mf6o.vercel.app/api/relay',
-  'https://masha-mf60.vercel.app/api/relay'
+  'https://masha-relay.lusnikoveduard9.workers.dev'
 ];
