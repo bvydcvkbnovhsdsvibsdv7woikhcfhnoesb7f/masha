@@ -554,7 +554,7 @@ async function handleTts(body, cfg) {
     if (provider === 'fish') {
       const res = await fetch('https://api.fish.audio/v1/tts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.fishKey },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.fishKey, model: 's2-pro' },
         body: JSON.stringify({ text: text, reference_id: cfg.fishVoice, format: 'mp3', mp3_bitrate: 128 }),
         signal: controller.signal
       });

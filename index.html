@@ -600,7 +600,7 @@ const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя 
    приложение само подставит новый текст, если ты его не правил вручную. */
 const PROMPT_VERSION = 29;
 /* Номер сборки приложения — видно в настройках, чтобы точно знать, какая версия загружена. */
-const BUILD = 32;
+const BUILD = 33;
 
 function applyPromptVersion() {
   const stored = parseInt(localStorage.getItem('masha_promptVersion') || '0', 10);
@@ -2079,6 +2079,32 @@ function loadVoices() {
    Когда её сообщение совпадает с текстом клипа — играет её настоящий голос,
    иначе работает обычный синтез речи. */
 let voiceClips = [];
+/* Облачный кэш озвучки: фраза → её голос, сгенерированный на ПК и выложенный на сайт.
+   Работает на телефоне без ПК. */
+let ttsCacheIndex = {};
+let ttsCacheTried = false;
+async function loadTtsCacheIndex() {
+  if (ttsCacheTried) return Object.keys(ttsCacheIndex).length > 0;
+  ttsCacheTried = true;
+  try {
+    const res = await fetch('voice/tts-index.json', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    ttsCacheIndex = data || {};
+    console.log('облачный кэш голоса: ' + Object.keys(ttsCacheIndex).length + ' фраз');
+    return Object.keys(ttsCacheIndex).length > 0;
+  } catch (e) { return false; }
+}
+function findTtsCacheFile(text) {
+  const n = normClipText(text);
+  if (!n) return '';
+  if (ttsCacheIndex[n]) return ttsCacheIndex[n];
+  // частичное совпадение: кэш-фраза есть внутри сообщения
+  for (const key of Object.keys(ttsCacheIndex)) {
+    if (key.length >= 6 && n.indexOf(key) !== -1) return ttsCacheIndex[key];
+  }
+  return '';
+}
 function normClipText(t) {
   return String(t || '').toLowerCase().replace(/[❤💋🫶🥰😭🙄🩷💖🥲🩷]/g, '').replace(/[^а-яё0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -2174,19 +2200,40 @@ async function speakSmart(text) {
     return;
   }
   if (useRelayTts) {
-    // 1) её голос с этого компьютера: готовые фразы звучат мгновенно
-    const hint = setTimeout(() => toast('озвучиваю её голосом…', 'ok'), 2500);
+    // 1) облачный кэш её голоса (работает и на телефоне, ПК не нужен)
     try {
-      const url = await localVoiceBlob(t);
-      clearTimeout(hint);
-      if (url) {
-        const audio = new Audio(url);
+      await loadTtsCacheIndex();
+      const rel = findTtsCacheFile(t);
+      if (rel) {
+        const audio = new Audio(rel);
         audio.play().catch(() => speakTTS(t));
         currentAudio = audio;
         return;
       }
-    } catch (e) { clearTimeout(hint); }
-    // 2) облачный релей (ElevenLabs / Fish / OpenAI — если настроены)
+    } catch (e) { /* идём дальше */ }
+    // 2) её голос с этого компьютера (XTTS): проверяем быстро, чтобы не ждать на телефоне
+    let localUp = false;
+    try {
+      const ctrl = new AbortController();
+      const probe = setTimeout(() => ctrl.abort(), 1500);
+      const r0 = await fetch(localVoiceUrl() + '/', { signal: ctrl.signal });
+      clearTimeout(probe);
+      localUp = r0.ok;
+    } catch (e) { localUp = false; }
+    if (localUp) {
+      const hint = setTimeout(() => toast('озвучиваю её голосом…', 'ok'), 2500);
+      try {
+        const url = await localVoiceBlob(t);
+        clearTimeout(hint);
+        if (url) {
+          const audio = new Audio(url);
+          audio.play().catch(() => speakTTS(t));
+          currentAudio = audio;
+          return;
+        }
+      } catch (e) { clearTimeout(hint); }
+    }
+    // 3) облачный релей (ElevenLabs / Fish / OpenAI — если настроены ключи)
     if (window.MashaAPI && typeof MashaAPI.tts === 'function') {
       try {
         const r = await MashaAPI.tts(t);

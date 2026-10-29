@@ -33,8 +33,15 @@ CACHE_DIR = os.path.join(ROOT, "voice", "cache")
 REFERENCE_WAV = os.path.join(ROOT, "voice", "reference.wav")
 LOG = os.path.join(ROOT, "voice", "pregenerate-log.txt")
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 40
+CHUNK = int(sys.argv[2]) if len(sys.argv) > 2 else 0   # сколько фраз сделать за этот запуск (0 = все)
+MIN_FREE_MB = 350        # минимум ФИЗИЧЕСКОЙ памяти
+MIN_VIRTUAL_MB = 2200    # минимум свободной виртуальной (файл подкачки)
 
 SPAM = re.compile(r"https?://|t\.me/|@[a-z0-9_]{4,}|кому-то понравилась|вам пришло", re.I)
+# служебные подписи в архиве — озвучивать не нужно
+PLACEHOLDERS = {"стикер", "фото", "видео", "голосовое", "гс", "стикеры", "фотография",
+                "файл", "документ", "аудио", "кружок", "пересланное сообщение",
+                "ответ", "реплай", "ссылка", "изображение", "видеосообщение"}
 
 
 def log(msg):
@@ -71,7 +78,7 @@ def pick_phrases():
             t = re.sub(r"\s+", " ", str(r[2] or "")).strip()
             if not t or len(t) > 45 or len(t.split()) < 1:
                 continue
-            if SPAM.search(t) or t.startswith("["):
+            if SPAM.search(t) or t.startswith("[") or normalize(t) in PLACEHOLDERS:
                 continue
             key = normalize(t)
             if not key:
@@ -108,8 +115,34 @@ def pick_phrases():
     return out[:LIMIT]
 
 
+def free_mb():
+    try:
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        st = MEMORYSTATUSEX()
+        st.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+        return (st.ullAvailPhys // (1024 * 1024), st.ullAvailVirtual // (1024 * 1024))
+    except Exception:
+        return (4096, 8192)
+
+
 def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
+    avail, virt = free_mb()
+    log("память: физической свободно %d МБ, виртуальной %d МБ" % (avail, virt))
+    if avail < MIN_FREE_MB and virt < MIN_VIRTUAL_MB:
+        log("МАЛО ПАМЯТИ (физической %d МБ, виртуальной %d МБ). Закрой программы и запусти снова."
+            % (avail, virt))
+        return 3
+    if avail < 900:
+        log("физической памяти мало (%d МБ) — модель будет частично в файле подкачки, "
+            "загрузка и озвучка пойдут МЕДЛЕННЕЕ, но работать будет." % avail)
     open(LOG, "w", encoding="utf-8").close()
     log("=== заранее озвучиваю её частые фразы ===")
     phrases = pick_phrases()
@@ -138,6 +171,7 @@ def main():
 
     done = 0
     skipped = 0
+    made_now = 0
     for i, text in enumerate(phrases, 1):
         p = cache_path(text)
         if os.path.exists(p):
@@ -168,6 +202,10 @@ def main():
         left = len(phrases) - i
         log("[%d/%d] «%s» → %.1f сек аудио за %.0f сек | осталось ~%.0f мин" % (
             i, len(phrases), text[:50], len(arr) / 24000, el, left * el / 60))
+        made_now += 1
+        if CHUNK and made_now >= CHUNK:
+            log("сделал порцию из %d фраз, останавливаюсь (запусти снова для продолжения)" % CHUNK)
+            break
 
     log("=== готово: новых %d, уже было %d, всего в кэше %d ===" % (
         done, skipped, len([f for f in os.listdir(CACHE_DIR) if f.endswith(".wav")])))
