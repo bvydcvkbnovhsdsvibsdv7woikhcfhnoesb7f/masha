@@ -77,6 +77,10 @@ function configFrom(env) {
     elevenVoice: e.ELEVENLABS_VOICE_ID || '',
     fishKey: e.FISH_KEY || '',
     fishVoice: e.FISH_VOICE_ID || '',
+    // бесплатная облачная озвучка через публичное HF-пространство (XTTS v2)
+    hfTtsSpace: e.HF_TTS_SPACE || '',
+    hfTtsRefUrl: e.HF_TTS_REF_URL || 'https://bvydcvkbnovhsdsvibsdv7woikhcfhnoesb7f.github.io/masha/voice/ref.wav',
+    hfTtsLang: e.HF_TTS_LANG || 'ru',
     baseUrl: e.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions',
     thoughts: String(e.DEEPSEEK_THOUGHTS === undefined ? '1' : e.DEEPSEEK_THOUGHTS) !== '0',
     timeoutMs: num(e.RELAY_TIMEOUT_MS, 30000),
@@ -504,8 +508,88 @@ function ttsProvider(cfg) {
   if (cfg.localTtsUrl) return 'local';
   if (cfg.elevenKey && cfg.elevenVoice) return 'elevenlabs';
   if (cfg.fishKey && cfg.fishVoice) return 'fish';
+  // бесплатное облачное клонирование через публичное HF-пространство (XTTS v2)
+  if (cfg.hfTtsSpace) return 'hfspace';
   if (cfg.openaiKey) return 'openai';
   return '';
+}
+
+/* ==== Озвучка через публичное HF-пространство (бесплатно, без ключей) ====
+   Пространство принимает ФАЙЛ образца голоса + текст + язык, отдаёт WAV.
+   Шаги: скачать образец с нашего сайта, загрузить в пространство,
+   запустить синтез (gradio /call), забрать файл. */
+let hfUploadedPath = '';      // кэш загруженного образца (на время жизни воркера)
+const hfAudioCache = {};      // текст -> base64 (повторные фразы мгновенно)
+
+/* "Nymbo/Voice-Clone-Multilingual" -> https://nymbo-voice-clone-multilingual.hf.space */
+function hfSpaceBase(space) {
+  const s = String(space || '').trim();
+  if (/^https?:\/\//i.test(s)) return s.replace(/\/+$/, '');
+  const slug = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return 'https://' + slug + '.hf.space';
+}
+
+async function hfUploadReference(cfg, signal) {
+  if (hfUploadedPath) return hfUploadedPath;
+  const refRes = await fetch(cfg.hfTtsRefUrl, { signal });
+  if (!refRes.ok) throw new Error('не скачался образец голоса: ' + refRes.status);
+  const refBuf = await refRes.arrayBuffer();
+  const form = new FormData();
+  form.append('files', new Blob([refBuf], { type: 'audio/wav' }), 'ref.wav');
+  const upRes = await fetch(hfSpaceBase(cfg.hfTtsSpace) + '/gradio_api/upload?upload_id=' + Date.now(), {
+    method: 'POST', body: form, signal
+  });
+  if (!upRes.ok) throw new Error('загрузка образца в пространство: ' + upRes.status);
+  const paths = await upRes.json();
+  if (!Array.isArray(paths) || !paths.length) throw new Error('пространство не вернуло путь файла');
+  hfUploadedPath = paths[0];
+  return hfUploadedPath;
+}
+
+async function handleHfSpaceTts(text, cfg, signal) {
+  if (hfAudioCache[text]) {
+    return { ok: true, tts: true, provider: 'hfspace-cache', mime: 'audio/wav', audio: hfAudioCache[text] };
+  }
+  const base = hfSpaceBase(cfg.hfTtsSpace);
+  const refPath = await hfUploadReference(cfg, signal);
+  const startRes = await fetch(base + '/gradio_api/call/predict', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: [text, { path: refPath, meta: { _type: 'gradio.FileData' } }, cfg.hfTtsLang || 'ru']
+    }),
+    signal
+  });
+  if (!startRes.ok) throw new Error('синтез не запустился: ' + startRes.status);
+  const startJson = await startRes.json();
+  const eventId = startJson && startJson.event_id;
+  if (!eventId) throw new Error('нет event_id');
+  const evRes = await fetch(base + '/gradio_api/call/predict/' + eventId, { signal });
+  if (!evRes.ok) throw new Error('не дождался результата: ' + evRes.status);
+  const raw = await evRes.text();
+  let fileObj = null;
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('data:')) continue;
+    const body = t.slice(5).trim();
+    if (!body || body === 'null') continue;
+    try {
+      const arr = JSON.parse(body);
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item && typeof item === 'object' && (item.url || item.path)) fileObj = item;
+        }
+      }
+    } catch (e) { /* пропускаем не-JSON */ }
+  }
+  if (!fileObj) throw new Error('пространство не вернуло аудио');
+  const audioUrl = fileObj.url || (base + '/gradio_api/file=' + fileObj.path);
+  const audioRes = await fetch(audioUrl, { signal });
+  if (!audioRes.ok) throw new Error('не скачалось аудио: ' + audioRes.status);
+  const buf = await audioRes.arrayBuffer();
+  const b64 = arrayBufferToBase64(buf);
+  hfAudioCache[text] = b64;
+  return { ok: true, tts: true, provider: 'hfspace', mime: 'audio/wav', audio: b64 };
 }
 
 async function handleTts(body, cfg) {
@@ -517,7 +601,7 @@ async function handleTts(body, cfg) {
       status: 200,
       data: {
         ok: false, error: 'no_tts', tts: false,
-        message: 'озвучка её голосом не настроена: нужен LOCAL_TTS_URL (XTTS на своём ПК), или ELEVENLABS_KEY+ELEVENLABS_VOICE_ID, или FISH_KEY+FISH_VOICE_ID'
+        message: 'озвучка её голосом не настроена: нужен LOCAL_TTS_URL (XTTS на своём ПК), или ELEVENLABS_KEY+ELEVENLABS_VOICE_ID, или FISH_KEY+FISH_VOICE_ID, или HF_TTS_SPACE'
       }
     };
   }
@@ -550,6 +634,19 @@ async function handleTts(body, cfg) {
       }
       const buf = await res.arrayBuffer();
       return { status: 200, data: { ok: true, tts: true, provider: provider, mime: 'audio/mpeg', audio: arrayBufferToBase64(buf) } };
+    }
+    if (provider === 'hfspace') {
+      // бесплатное облачное клонирование: публичное HF-пространство XTTS v2
+      const ctrlHf = new AbortController();
+      const timerHf = setTimeout(() => ctrlHf.abort(), 120000);
+      try {
+        const out = await handleHfSpaceTts(text, cfg, ctrlHf.signal);
+        return { status: 200, data: out };
+      } catch (e) {
+        return { status: 200, data: { ok: false, error: 'tts_hfspace', tts: true, provider: provider, message: String((e && e.message) || e) } };
+      } finally {
+        clearTimeout(timerHf);
+      }
     }
     if (provider === 'fish') {
       const res = await fetch('https://api.fish.audio/v1/tts', {

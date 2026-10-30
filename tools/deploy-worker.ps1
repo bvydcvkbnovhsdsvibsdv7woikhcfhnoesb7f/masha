@@ -28,7 +28,10 @@ $metadata = @{
     compatibility_date = "2024-09-23"
     bindings           = @(
         @{ type = "ai"; name = "AI" },
-        @{ type = "secret_text"; name = "DEEPSEEK_API_KEY"; text = $dsKey }
+        @{ type = "secret_text"; name = "DEEPSEEK_API_KEY"; text = $dsKey },
+        @{ type = "plain_text"; name = "HF_TTS_SPACE"; text = "Nymbo/Voice-Clone-Multilingual" },
+        @{ type = "plain_text"; name = "HF_TTS_REF_URL"; text = "https://bvydcvkbnovhsdsvibsdv7woikhcfhnoesb7f.github.io/masha/voice/ref.wav" },
+        @{ type = "plain_text"; name = "HF_TTS_LANG"; text = "ru" }
     )
 } | ConvertTo-Json -Depth 6 -Compress
 
