@@ -273,7 +273,7 @@ body { background:linear-gradient(180deg,#0e1621 0%,#0f1a26 100%); }
         <input type="checkbox" id="relay-tts"><span>Озвучивать её голосом (клонированным, через релей)</span>
       </label>
       <label style="font-size:12px;color:#8a9ba8;margin-top:10px;display:block;">Её голос на этом компьютере (XTTS)</label>
-      <input id="local-voice-url" placeholder="http://127.0.0.1:8788" value="http://127.0.0.1:8788">
+      <input id="local-voice-url" placeholder="http://127.0.0.1:8788">
       <div id="tts-status" style="font-size:11px;color:#8a9ba8;margin-top:6px;">…</div>
     </div>
 
@@ -600,7 +600,7 @@ const DEFAULT_PROMPT = `Ты Маша — живая девушка. **Тебя 
    приложение само подставит новый текст, если ты его не правил вручную. */
 const PROMPT_VERSION = 29;
 /* Номер сборки приложения — видно в настройках, чтобы точно знать, какая версия загружена. */
-const BUILD = 33;
+const BUILD = 34;
 
 function applyPromptVersion() {
   const stored = parseInt(localStorage.getItem('masha_promptVersion') || '0', 10);
@@ -2162,8 +2162,15 @@ function speak(text) {
 let useRelayTts = localStorage.getItem('masha_relayTts') === '1';
 
 function localVoiceUrl() {
-  const raw = localStorage.getItem('masha_localVoice') || 'http://127.0.0.1:8788';
-  return String(raw).trim().replace(/\/+$/, '');
+  const saved = localStorage.getItem('masha_localVoice');
+  if (saved) return String(saved).trim().replace(/\/+$/, '');
+  // Если приложение открыто с компьютера по Wi-Fi (http://192.168.x.x:8080),
+  // то её голос — на том же компьютере, порт 8788. Так телефон находит ПК сам.
+  const h = location.hostname;
+  if (h && h !== 'localhost' && h !== '127.0.0.1' && /^\d+\.\d+\.\d+\.\d+$/.test(h)) {
+    return 'http://' + h + ':8788';
+  }
+  return 'http://127.0.0.1:8788';
 }
 
 /* Просит локальный сервер озвучить текст. Возвращает ссылку на аудио или null. */

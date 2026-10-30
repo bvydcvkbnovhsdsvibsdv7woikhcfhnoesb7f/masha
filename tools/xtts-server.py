@@ -31,6 +31,7 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PORT = int(os.environ.get("XTTS_PORT", "8788"))
+HOST = os.environ.get("XTTS_HOST", "0.0.0.0")   # 0.0.0.0 = доступ с телефона по Wi-Fi
 
 os.environ.setdefault("TTS_HOME", os.path.join(ROOT, ".tts-home"))
 os.environ.setdefault("HF_HOME", os.path.join(ROOT, ".hf-cache"))
@@ -243,9 +244,19 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
     threading.Thread(target=load_everything, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
     srv.daemon_threads = True
     log("сервер поднят на http://127.0.0.1:%d (модель грузится в фоне)" % PORT)
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+        if HOST == "0.0.0.0" and not lan_ip.startswith("127."):
+            log("для телефона (та же Wi-Fi): http://%s:%d" % (lan_ip, PORT))
+    except Exception:
+        pass
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
